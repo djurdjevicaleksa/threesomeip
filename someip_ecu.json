@@ -15,7 +15,7 @@
         },
         {
             "name" : "other-client-sample",
-            "id" : 1344
+            "id" : "0x1344"
         },
         {
             "name" : "service-sample",
@@ -37,7 +37,7 @@
             "unreliable" : "31000"
         }
     ],
-    "routing" : "client-sample",
+    "routing" : "threesomeip_runtime",
     "service-discovery" :
     {
         "enable" : true,

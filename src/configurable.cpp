@@ -13,61 +13,25 @@
 \*===========*/
 #include <nlohmann/json.hpp>
 
+/*=============*\
+ * APPLICATION *
+\*=============*/
+#include <configurable.hpp>
+
 
 namespace threesomeip {
 
-struct ecu_configuration_t {
-    struct logging_configuration_t {
-        std::string output_file_name;
-        std::string level;
-        bool console;
-        bool dlt; // unused TODO find out what this is
-    };
 
-    struct application_configuration_t {
-        std::string name;
-        uint16_t id;
-    };
-
-    struct service_configuration_t {
-        uint16_t service_id;
-        uint16_t instance_id;
-        uint16_t udp_port;
-        uint16_t tcp_port;
-    };
-
-    // TODO service_discovery_configuration_t {};
-
-
-    std::string unicast_address;
-    logging_configuration_t logging;
-    std::vector<application_configuration_t> applications;
-    std::vector<service_configuration_t> services;
-    std::string runtime_application_name;
-    // TODO service_discovery_configuration_t sd;
-};
-
-
-
-enum class ConfigurationParsingError {
-    INVALID_NUMBER_SYSTEM = 0,
-    INVALID_NUMBER_INPUT,
-    UNABLE_TO_OPEN_FILE,
-    NLOHMANN_JSON_ERROR
-};
-
-std::string to_string(ConfigurationParsingError error) {
-    switch (error) {
-        case ConfigurationParsingError::INVALID_NUMBER_SYSTEM: return "INVALID_NUMBER_SYSTEM";
-        case ConfigurationParsingError::INVALID_NUMBER_INPUT: return "INVALID_NUMBER_INPUT";
-        case ConfigurationParsingError::UNABLE_TO_OPEN_FILE: return "UNABLE_TO_OPEN_FILE";
-        case ConfigurationParsingError::NLOHMANN_JSON_ERROR: return "NLOHMANN_JSON_ERROR";
-        default: return "!UNKNOWN CONFIGURATION PARSING ERROR!";
+configurable_t::configurable_t(const char* ecu_configuration_file_path) {
+    auto loaded_configuration = parseEcuConfiguration(ecu_configuration_file_path);
+    if (loaded_configuration) {
+        m_ecu_configuration = loaded_configuration.value();
     }
+    else throw new std::runtime_error("Failed to parse ecu configuration.");
 }
 
-namespace {
-std::expected<uint16_t, ConfigurationParsingError> parseStringAsU16(std::string_view value) noexcept {
+std::expected<uint16_t, configurable_t::ConfigurationParsingError>
+configurable_t::parseStringAsU16(std::string_view value) noexcept {
 
     int number_base = 10;
 
@@ -75,7 +39,7 @@ std::expected<uint16_t, ConfigurationParsingError> parseStringAsU16(std::string_
     else if (value.compare("0o") or value.compare("0O")) number_base = 8;
     else if (value.compare("0b") or value.compare("0B")) number_base = 2;
 
-    int prefix_offset = (number_base == 10) ? 0 : 2;
+    const uint8_t prefix_offset = (number_base == 10) ? 0 : 2;
 
     uint16_t parsed_value = 0;
     const auto[pointer, ec] = std::from_chars(
@@ -84,22 +48,17 @@ std::expected<uint16_t, ConfigurationParsingError> parseStringAsU16(std::string_
         parsed_value,
         number_base
     );
-
-    if (ec != std::errc{}) {
-        return std::unexpected(ConfigurationParsingError::INVALID_NUMBER_INPUT);
-    }
+    if (ec != std::errc{}) return std::unexpected(ConfigurationParsingError::INVALID_NUMBER_INPUT);
 
     return parsed_value;
 }
-}
 
-
-std::expected<ecu_configuration_t, ConfigurationParsingError> parseEcuConfiguration(const char* ecu_configuration_file_path) noexcept {
+std::expected<configurable_t::ecu_configuration_t, configurable_t::ConfigurationParsingError>
+configurable_t::parseEcuConfiguration(const char* ecu_configuration_file_path) noexcept {
     using json = nlohmann::json;
 
     std::ifstream ecu_config_file_handle(ecu_configuration_file_path);
     if (!ecu_config_file_handle.is_open()) {
-        // Handle error
         return std::unexpected(ConfigurationParsingError::UNABLE_TO_OPEN_FILE);
     }
 
@@ -145,6 +104,5 @@ std::expected<ecu_configuration_t, ConfigurationParsingError> parseEcuConfigurat
         return std::unexpected(ConfigurationParsingError::NLOHMANN_JSON_ERROR);
     }
 }
-
 
 } // namespace threesomeip

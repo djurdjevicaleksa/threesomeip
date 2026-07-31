@@ -6,7 +6,7 @@
 /*===========*\
  * APPLICATION *
 \*===========*/
-#include <ecu_configuration.hpp>
+#include <runtime.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -14,13 +14,8 @@
 
 int main(int argc, char** argv) {
 
-    const auto config = threesomeip::parseEcuConfiguration("/home/lecq/Desktop/actuallySomeip/someip_ecu.json");
-    if (!config.has_value()) {
-        std::println("Error:");
-        std::println("{}", to_string(config.error()));
-        return 1;
-    }
+    threesomeip::runtime_t runtime("/home/lecq/Desktop/actuallySomeip/someip_ecu.json");
+    runtime.run();
 
-    std::println("SUCCESS");
     return 0;
 }

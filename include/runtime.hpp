@@ -1,19 +1,24 @@
+/*=====*\
+ * C++ *
+\*=====*/
+
+/*=============*\
+ * APPLICATION *
+\*=============*/
+#include <configurable.hpp>
 
 
 namespace threesomeip {
 
 
-
-class Runtime {
+class runtime_t: private configurable_t {
 public:
 
-    Runtime();
-    ~Runtime();
+    runtime_t(const char*);
 
 private:
+
     int m_ud_socket;
-
-
 };
 
 

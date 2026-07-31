@@ -17,6 +17,8 @@ add_executable(threesomeip_runtime)
 target_sources( threesomeip_runtime
     PRIVATE
         src/main_runtime.cpp
+        src/runtime.cpp
+        src/configurable.cpp
 )
 
 target_include_directories( threesomeip_runtime
