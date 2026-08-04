@@ -17,6 +17,7 @@
  * APPLICATION *
 \*=============*/
 #include <configurable.hpp>
+#include <configuration.hpp>
 
 
 namespace threesomeip {
@@ -53,7 +54,7 @@ configurable_t::parseStringAsU16(std::string_view value) noexcept {
     return parsed_value;
 }
 
-std::expected<configurable_t::ecu_configuration_t, configurable_t::ConfigurationParsingError>
+std::expected<config::ecu_configuration_t, configurable_t::ConfigurationParsingError>
 configurable_t::parseEcuConfiguration(const char* ecu_configuration_file_path) noexcept {
     using json = nlohmann::json;
 
@@ -63,7 +64,7 @@ configurable_t::parseEcuConfiguration(const char* ecu_configuration_file_path) n
     }
 
     try {
-        ecu_configuration_t config{};
+        config::ecu_configuration_t config{};
 
         json data = json::parse(ecu_config_file_handle);
 

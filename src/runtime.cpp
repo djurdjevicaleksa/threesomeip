@@ -55,7 +55,23 @@ runtime_t::runtime_t(const char* ecu_configuration_file_path):
             close(m_ud_socket);
         }
     }
+
+    std::println("Runtime successfully opened and bound the socket.");
 }
 
+runtime_t::~runtime_t() {
+    close(m_ud_socket);
+    std::println("Runtime successfully closed the socket.");
+}
+
+void
+runtime_t::run() {
+    while (true) {
+
+
+
+
+    }
+}
 
 } // namespace threesomeip

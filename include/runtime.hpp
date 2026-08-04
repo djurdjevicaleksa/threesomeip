@@ -1,3 +1,6 @@
+#ifndef _RUNTIME_HPP
+#define _RUNTIME_HPP
+
 /*=====*\
  * C++ *
 \*=====*/
@@ -10,11 +13,15 @@
 
 namespace threesomeip {
 
+#error "Implement destructor to close socket"
 
 class runtime_t: private configurable_t {
 public:
 
     runtime_t(const char*);
+    ~runtime_t();
+
+    void run();
 
 private:
 
@@ -23,3 +30,5 @@ private:
 
 
 } // namespace threesomeip
+
+#endif // _RUNTIME_HPP
