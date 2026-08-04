@@ -51,5 +51,6 @@
         "ttl" : "3",
         "cyclic_offer_delay" : "2000",
         "request_response_delay" : "1500"
-    }
+    },
+    "ipc-path": "/home/adjurdjevic/Desktop/threesomeip/ipc_sockets"
 }

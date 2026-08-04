@@ -11,6 +11,9 @@
 
 namespace threesomeip::ipc {
 
+constexpr uint16_t MAX_PAYLOAD_SIZE = SO_SNDBUF;
+
+
 enum class message_type_t: uint8_t {
     REGISTER_APPLICATION = 0,
     UNREGISTER_APPLICATION,
@@ -24,8 +27,8 @@ struct __attribute__((packed)) ipc_message_header_t {
     message_type_t message_type;
     uint8_t flags;
     uint16_t request_id;
-    uint16_t payload_length;
     uint16_t reserved;
+    uint16_t payload_length;
 };
 
 void encodeRegisterApplicationRequest();
