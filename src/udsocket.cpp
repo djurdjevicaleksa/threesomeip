@@ -8,6 +8,10 @@
 #include <string>
 #include <cstring>
 #include <sys/fcntl.h>
+#include <array>
+#include <vector>
+#include <thread>
+#include <mutex>
 
 /*=============*\
  * APPLICATION *
@@ -109,11 +113,11 @@ int ud_socket_t::fd() const {
     return m_ud_socket_fd;
 }
 
-bool ud_socket_t::send_to(int fd, std::span<std::byte> data, std::function<void(send_result_t)> on_completion) {
+bool ud_socket_t::send_to(int fd, std::span<const std::byte> data, std::function<void(send_result_t)> on_completion) {
 
 }
 
-bool ud_socket_t::send_to(std::string_view pathname, std::span<std::byte> data, std::function<void(send_result_t)> on_completion) {
+bool ud_socket_t::send_to(std::string_view pathname, std::span<const std::byte> data, std::function<void(send_result_t)> on_completion) {
     // Format the recipient address
     sockaddr_un recipient{};
     recipient.sun_family = AF_UNIX;
@@ -152,19 +156,69 @@ bool ud_socket_t::send_to(std::string_view pathname, std::span<std::byte> data, 
             default: {
                 if (on_completion) {
                     on_completion(send_result_t::DECLINED);
-                    return false;
                 }
+                return false;
             }
         }
     }
 
     if (on_completion) {
         on_completion(send_result_t::ACCEPTED);
-        return true;
     }
+    return true;
 }
 
+bool ud_socket_t::recv_from(std::vector<std::byte>& payload, std::string& sender_pathname) {
 
+    // Prepare the output buffer
+    payload.resize(MAX_PAYLOAD_SIZE);
+
+    // Prepare the struct for storing the sender's address
+    sockaddr_un sender_address{};
+    socklen_t sender_address_length{sizeof(sender_address)};
+
+    ssize_t bytes_read = recvfrom(
+        m_ud_socket_fd,
+        payload.data(),
+        payload.size(),
+        0,
+        reinterpret_cast<sockaddr*>(&sender_address),
+        &sender_address_length
+    );
+
+    if (-1 == bytes_read) {
+        switch (errno) {
+#if defined(EAGAIN) && defined(EWOULDBLOCK)
+    #if EAGAIN == EWOULDBLOCK
+            case EAGAIN: {
+    #else
+            case EAGAIN: [[fallthrough]];
+            case EWOULDBLOCK: {
+    #endif
+#elif defined(EAGAIN)
+            case EAGAIN: {
+#elif defined(EWOULDBLOCK)
+            case EWOULDBLOCK: {
+#else
+    #error "Missing both errno values for missing memory for IPC transport!"
+#endif
+
+
+            }
+        }
+
+
+        return false;
+    }
+
+    payload.resize(static_cast<size_t>(bytes_read));
+    sender_pathname.assign(
+        sender_address.sun_path,
+        sender_address_length - offsetof(sockaddr_un, sun_path)
+    );
+
+    return true;
+}
 
 
 

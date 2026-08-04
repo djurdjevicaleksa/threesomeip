@@ -12,6 +12,8 @@
 #include <optional>
 #include <queue>
 #include <sys/un.h>
+#include <thread>
+#include <mutex>
 
 /*=============*\
  * APPLICATION *
@@ -48,10 +50,9 @@ public:
 
     ~ud_socket_t();
 
-    int fd() const;
+    bool send_to(std::string_view pathname, std::span<const std::byte> data);
 
-    bool send_to(int fd, std::span<std::byte> data, std::function<void(send_result_t)> on_completion);
-    bool send_to(std::string_view pathname, std::span<std::byte> data, std::function<void(send_result_t)> on_completion);
+    bool recv_from(/* out */ std::vector<std::byte>& payload, /* out */ std::string& sender_pathname);
 
     // bool retry_send_to()
 
@@ -63,6 +64,8 @@ private:
 
     int m_ud_socket_fd;
     const std::optional<std::string> m_pathname;
+    std::thread t_worker;
+    std::mutex m_mutex;
 
     std::queue<pending_message_t> m_pending_messages;
 };

@@ -11,7 +11,7 @@
 
 namespace threesomeip::ipc {
 
-constexpr uint16_t MAX_PAYLOAD_SIZE = SO_SNDBUF;
+constexpr uint16_t MAX_PAYLOAD_SIZE = 1024;
 
 
 enum class message_type_t: uint8_t {
