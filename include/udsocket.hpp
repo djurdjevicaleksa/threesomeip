@@ -14,6 +14,7 @@
 #include <sys/un.h>
 #include <thread>
 #include <mutex>
+#include <unordered_map>
 
 /*=============*\
  * APPLICATION *
@@ -24,50 +25,68 @@
 namespace threesomeip::ipc {
 
 
-
-enum class send_result_t {
-    ACCEPTED = 0,
-    DECLINED
-};
-
 struct pending_message_t {
-    sockaddr_un recipient;
+    const std::string recipient;
     const std::vector<const std::byte> data;
     size_t bytes_already_written; // For future SOCK_STREAM support
-    std::function<void()> on_completion;
+    std::function<void()> _EXPERIMENTAL_on_fatal_error;
 };
 
 
 /*
     Currently only blocking
 */
-class ud_socket_t: protected lifecycle_listener {
+class ud_socket_t: protected lifecycle_listener_t {
 public:
 
-    ud_socket_t();
+    using ReceiveCallback = std::function<void(const std::string_view sender_pathname, const std::span<const std::byte> data)>;
+    using TrivialCallback = std::function<void()>;
 
-    ud_socket_t(std::string_view pathname);
+    ud_socket_t(
+        std::string_view own_pathname,
+        std::optional<ReceiveCallback> on_receive
+    ) noexcept;
+
+    ud_socket_t() noexcept;
 
     ~ud_socket_t();
 
-    bool send_to(std::string_view pathname, std::span<const std::byte> data);
-
-    bool recv_from(/* out */ std::vector<std::byte>& payload, /* out */ std::string& sender_pathname);
-
-    // bool retry_send_to()
+    bool send(
+        std::string_view recepient_pathname,
+        std::span<const std::byte> data,
+        std::optional<TrivialCallback> _EXPERIMENTAL_on_fatal_error
+    );
 
 private:
 
     bool init();
 
-    void send();
+    bool receive();
+
+    void serve();
+
+    virtual void on_alive() const {}
+
+    virtual void on_dead() const {}
+
 
     int m_ud_socket_fd;
-    const std::optional<std::string> m_pathname;
+
+    int m_wakeup_fd;
+    short int m_fdpoll_mask;
+    pollfd m_poll_fds[2];
+
+    const std::optional<const std::string> m_pathname;
+    std::optional<ReceiveCallback> m_on_receive;
+
+    const bool m_writeonly;
+
+
     std::thread t_worker;
     std::mutex m_mutex;
 
     std::queue<pending_message_t> m_pending_messages;
+    std::unordered_map<std::string_view, sockaddr_un> m_cache;
 };
 
 

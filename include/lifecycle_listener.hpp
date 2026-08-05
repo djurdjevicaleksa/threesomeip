@@ -4,10 +4,10 @@
 
 namespace threesomeip::ipc {
 
-class lifecycle_listener {
+class lifecycle_listener_t {
 public:
 
-    lifecycle_listener(): m_stage(lifecycle_stage_t::INIT) {}
+    lifecycle_listener_t(): m_stage(lifecycle_stage_t::INIT) {}
 
     bool is_alive() const {
         return m_stage == lifecycle_stage_t::ALIVE;
