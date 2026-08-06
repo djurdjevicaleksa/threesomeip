@@ -23,24 +23,21 @@
 
 
 namespace threesomeip::ipc {
+    using TrivialCallback = std::function<void()>;
 
 
 struct pending_message_t {
     const std::string recipient;
-    const std::vector<const std::byte> data;
+    const std::vector<std::byte> data;
     size_t bytes_already_written; // For future SOCK_STREAM support
-    std::function<void()> _EXPERIMENTAL_on_fatal_error;
+    TrivialCallback _EXPERIMENTAL_on_fatal_error;
 };
 
 
-/*
-    Currently only blocking
-*/
-class ud_socket_t: protected lifecycle_listener_t {
+class ud_socket_t: public lifecycle_listener_t {
 public:
 
-    using ReceiveCallback = std::function<void(const std::string_view sender_pathname, const std::span<const std::byte> data)>;
-    using TrivialCallback = std::function<void()>;
+    using ReceiveCallback = std::function<void(ud_socket_t& self, const std::string_view sender_pathname, const std::span<const std::byte> data)>;
 
     ud_socket_t(
         std::string_view own_pathname,
@@ -59,34 +56,42 @@ public:
 
 private:
 
-    bool init();
+
+
+    void init();
 
     bool receive();
 
     void serve();
 
-    virtual void on_alive() const {}
+    bool retry_send();
 
-    virtual void on_dead() const {}
+    void on_alive() override;
+
+    void on_dead() override;
 
 
     int m_ud_socket_fd;
 
-    int m_wakeup_fd;
-    short int m_fdpoll_mask;
-    pollfd m_poll_fds[2];
+    int m_wakeup_fd; // Used for reapplying the fdpoll_mask
+    int m_shutdown_fd;
 
     const std::optional<const std::string> m_pathname;
-    std::optional<ReceiveCallback> m_on_receive;
-
-    const bool m_writeonly;
-
+    const std::optional<ReceiveCallback> m_on_receive;
 
     std::thread t_worker;
     std::mutex m_mutex;
 
     std::queue<pending_message_t> m_pending_messages;
-    std::unordered_map<std::string_view, sockaddr_un> m_cache;
+
+    /* make unordered_map<stding> indexable using string_view */
+    struct string_hash {
+        using is_transparent = void;
+        size_t operator()(std::string_view sv) const noexcept {
+            return std::hash<std::string_view>{}(sv);
+        }
+    };
+    std::unordered_map<std::string, sockaddr_un, string_hash, std::equal_to<>> m_cache;
 };
 
 

@@ -38,4 +38,4 @@ void encodeRequestServiceRequest();
 
 
 } // namespace threesomeip::ipc
-#endif _IPC_FORMAT_HPP
+#endif // _IPC_FORMAT_HPP
