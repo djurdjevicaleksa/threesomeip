@@ -15,29 +15,39 @@
 #include <thread>
 #include <mutex>
 #include <unordered_map>
+#include <memory>
 
 /*=============*\
  * APPLICATION *
 \*=============*/
 #include <lifecycle_listener.hpp>
+#include <spdlog/logger.h>
 
 
 namespace threesomeip::ipc {
-    using TrivialCallback = std::function<void()>;
 
 
-struct pending_message_t {
-    const std::string recipient;
-    const std::vector<std::byte> data;
-    size_t bytes_already_written; // For future SOCK_STREAM support
-    TrivialCallback _EXPERIMENTAL_on_fatal_error;
+enum class send_result_t {
+    SENT = 0,
+    DELAYED_RESULT,
+    SOCKET_DEAD,
+    RECIPIENT_AWAY
 };
-
 
 class ud_socket_t: public lifecycle_listener_t {
 public:
 
+
+    using DelayedResultCallback = std::function<void(const std::string_view recipient, const send_result_t result, const std::span<const std::byte> data)>;
     using ReceiveCallback = std::function<void(ud_socket_t& self, const std::string_view sender_pathname, const std::span<const std::byte> data)>;
+
+    struct pending_message_t {
+        const std::string recipient;
+        const std::vector<std::byte> data;
+        size_t bytes_already_written; // For future SOCK_STREAM support
+        DelayedResultCallback on_delayed_result;
+    };
+
 
     ud_socket_t(
         std::string_view own_pathname,
@@ -46,19 +56,17 @@ public:
 
     ud_socket_t() noexcept;
 
-    ~ud_socket_t();
+    ~ud_socket_t() noexcept;
 
-    bool send(
+    send_result_t send(
         std::string_view recepient_pathname,
         std::span<const std::byte> data,
-        std::optional<TrivialCallback> _EXPERIMENTAL_on_fatal_error
-    );
+        std::optional<DelayedResultCallback> on_delayed_result
+    ) noexcept;
 
 private:
 
-
-
-    void init();
+    void init() noexcept;
 
     bool receive();
 
@@ -92,6 +100,8 @@ private:
         }
     };
     std::unordered_map<std::string, sockaddr_un, string_hash, std::equal_to<>> m_cache;
+
+    std::shared_ptr<spdlog::logger> m_logger;
 };
 
 

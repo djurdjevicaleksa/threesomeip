@@ -15,12 +15,20 @@
 #include <optional>
 #include <poll.h>
 #include <sys/eventfd.h>
+#include <filesystem>
+#include <format>
+#include <cstdlib>
 
 /*=============*\
  * APPLICATION *
 \*=============*/
 #include <udsocket.hpp>
 #include <ipc_format.hpp>
+
+/*===========*\
+ * 3RD PARTY *
+\*===========*/
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 
 #if defined(EAGAIN) && defined(EWOULDBLOCK)
@@ -37,37 +45,52 @@
     #error "Missing both errno values for indicating that the socket's write buffer is full."
 #endif
 
+#define CASE_ENOENT_ECONNREFUSED case ENOENT: [[fallthrough]]; case ECONNREFUSED
+
+
 
 namespace threesomeip::ipc {
 
 
-ud_socket_t::ud_socket_t(std::string_view own_pathname, std::optional<ReceiveCallback> on_receive) noexcept :
+ud_socket_t::ud_socket_t(std::string_view own_pathname, std::optional<ReceiveCallback> on_receive) noexcept:
     m_ud_socket_fd(-1), m_wakeup_fd(-1), m_pathname(own_pathname), m_on_receive(std::move(on_receive.value_or(nullptr))) {
     this->init();
 }
 
-ud_socket_t::ud_socket_t() noexcept :
+ud_socket_t::ud_socket_t() noexcept:
     m_ud_socket_fd(-1), m_wakeup_fd(-1) {
     this->init();
 }
 
-void ud_socket_t::init() {
+void ud_socket_t::init() noexcept {
+
+    if (m_pathname.has_value()) m_logger = spdlog::stdout_color_mt(std::filesystem::path(m_pathname.value()).filename(), spdlog::color_mode::always);
+    else m_logger = spdlog::stdout_color_mt(std::format("unnamed_socket_{}", std::rand() % 1024));
+
+    m_logger->set_level(spdlog::level::debug);
+    m_logger->set_pattern("[%H:%M:%S.%e][%n][%l] %v");
+
     do {
         if (const int sock = socket(AF_UNIX, SOCK_DGRAM, 0); -1 == sock) {
             /* currently no issue which can arise is recoverable */
+            m_logger->info("Failed to open a socket");
             break;
         }
         else m_ud_socket_fd = sock;
+        m_logger->info("Opened a socket");
 
         /* Set into non-blocking state */
         int flags = fcntl(m_ud_socket_fd, F_GETFL, 0);
         if (-1 == fcntl(m_ud_socket_fd, F_SETFL, flags | O_NONBLOCK)) {
+            m_logger->info("Failed to set to non-blocking mode");
             break;
         }
+        m_logger->info("Set to non-blocking mode");
 
         /* If its not named, it's done */
         if (!m_pathname.has_value()) {
             this->to_alive();
+            m_logger->info("Initialized");
             return;
         }
 
@@ -84,17 +107,23 @@ void ud_socket_t::init() {
         (void) unlink(address.sun_path);
 
         if (-1 == bind(m_ud_socket_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address))) {
+            m_logger->info("Failed to bind");
             break;
         }
+        m_logger->info("Bound");
 
         /* Set up eventfds */
         if (int wakeup = eventfd(0, EFD_CLOEXEC); -1 == wakeup) {
+            m_logger->info("Failed to initialize a wakeup eventfd");
             break;
         } else m_wakeup_fd = wakeup;
+        m_logger->info("Initialized a wakeup eventfd");
 
         if (int shutdown = eventfd(0, EFD_CLOEXEC); -1 == shutdown) {
+            m_logger->info("Failed to initialize a shutdown eventfd");
             break;
         } else m_shutdown_fd = shutdown;
+        m_logger->info("Initialized a shutdown eventfd");
 
         this->to_alive();
         return;
@@ -106,10 +135,10 @@ void ud_socket_t::init() {
 
 void ud_socket_t::on_alive() {
     t_worker = std::thread(&ud_socket_t::serve, this);
+    m_logger->info("Started a worker thread; Socket proclaimed alive");
 }
 
 void ud_socket_t::on_dead() {
-
     /* wake the thread */
     uint64_t flag{1};
     write(m_shutdown_fd, &flag, sizeof(flag));
@@ -126,18 +155,22 @@ void ud_socket_t::on_dead() {
     if (m_pathname.has_value()) {
         unlink(m_pathname.value().c_str());
     }
+    m_logger->info("Cleanup; Socket proclaimed dead");
 }
 
-ud_socket_t::~ud_socket_t() {
+ud_socket_t::~ud_socket_t() noexcept {
     this->to_dead();
 }
 
-bool ud_socket_t::send(std::string_view recepient_pathname, std::span<const std::byte> data, std::optional<TrivialCallback> _EXPERIMENTAL_on_fatal_error) {
-    if (!this->is_alive()) return false;
-    if (data.size() > MAX_PAYLOAD_SIZE) return false;
+auto ud_socket_t::send(
+    std::string_view recepient_pathname,
+    std::span<const std::byte> data,
+    std::optional<DelayedResultCallback> on_delayed_result) noexcept
+-> send_result_t {
+
+    if (!this->is_alive()) return send_result_t::SOCKET_DEAD;
 
     /* protected against TOCTOU */
-
     std::lock_guard<std::mutex> lock(m_mutex);
 
     /* immediately cache the recipient's address */
@@ -164,38 +197,58 @@ bool ud_socket_t::send(std::string_view recepient_pathname, std::span<const std:
         ) {
             switch (errno) {
                 CASE_EAGAIN_EWOULDBLOCK: {
+                    m_logger->debug("Socket kernel buffer full, will retry to send the message later");
+
                     m_pending_messages.emplace(
                         std::string{recepient_pathname},
                         std::vector(data.begin(), data.end()),
                         /* bytes_already_written always 0 for UNIX DGRAM */ 0,
-                        std::move(_EXPERIMENTAL_on_fatal_error.value_or(nullptr))
+                        std::move(on_delayed_result.value_or(nullptr))
                     );
 
                     /* Register for writeable notifications and notify */
                     uint64_t flag{1};
                     write(m_wakeup_fd, &flag, sizeof(flag));
 
-                    return true;
+                    return send_result_t::DELAYED_RESULT;
                 }
 
-                case EINTR: /* interrupted; try again */ continue;
+                CASE_ENOENT_ECONNREFUSED: {
+                    m_logger->debug(std::format("The recipient ({}) is unreachable", recepient_pathname));
+                    return send_result_t::RECIPIENT_AWAY;
+                }
+
+                case EINTR: {
+                    m_logger->debug("Send interrupted, will retry to send the message");
+                    /* interrupted; try again */ continue;
+                }
 
                 default: {
+                    m_logger->debug("Fatal error occurred, socket died");
                     this->to_dead();
-                    return false;
+                    return send_result_t::SOCKET_DEAD;
                 }
             }
         }
         else break;
     }
 
-    return true;
+    m_logger->debug(
+        std::format(
+            "Sent {} bytes of data to {} [{}]",
+            data.size(),
+            recepient_pathname,
+            std::string_view(reinterpret_cast<const char*>(data.data()), data.size())
+        )
+    );
+    return send_result_t::SENT;
 }
 
 bool ud_socket_t::retry_send() {
     if (!this->is_alive()) return false;
 
     /* protected against TOCTOU */
+    std::unique_lock<std::mutex> lock(m_mutex);
 
     /* "goto" alternative for when EINTR happens; still a single retry */
     while (true) {
@@ -210,17 +263,45 @@ bool ud_socket_t::retry_send() {
             switch (errno) {
                 CASE_EAGAIN_EWOULDBLOCK: {
                     /* it became blocking again */
+                    m_logger->debug("Socket kernel buffer full while trying to retry, will retry again later");
                     return false;
                 }
 
-                case EINTR: /* interrupted; try again */ continue;
+                case EINTR: {
+                    m_logger->debug("Retry interrupted, will retry again");
+                    /* interrupted; try again */ continue;
+                }
+
+                CASE_ENOENT_ECONNREFUSED: {
+                    m_logger->debug(std::format("The recipient ({}) is unreachable during retrying", m_pending_messages.front().recipient));
+
+                    if (m_pending_messages.front().on_delayed_result) {
+                        lock.unlock();
+                        std::invoke(
+                            m_pending_messages.front().on_delayed_result,
+                            std::string_view{m_pending_messages.front().recipient},
+                            send_result_t::RECIPIENT_AWAY,
+                            std::span<const std::byte>{m_pending_messages.front().data}
+                        );
+                        lock.lock();
+                    }
+                    m_pending_messages.pop();
+                    return true;
+                }
 
                 default: {
                     /* exceptional case; unsupported */
-                    if (m_pending_messages.front()._EXPERIMENTAL_on_fatal_error) {
-                        std::invoke(m_pending_messages.front()._EXPERIMENTAL_on_fatal_error);
-                    }
+                    m_logger->debug("Fatal error occurred while retrying, socket died");
 
+                    if (m_pending_messages.front().on_delayed_result) {
+                        lock.unlock();
+                        std::invoke(
+                            m_pending_messages.front().on_delayed_result,
+                            std::string_view{m_pending_messages.front().recipient},
+                            send_result_t::SOCKET_DEAD,
+                            std::span<const std::byte>{m_pending_messages.front().data}
+                        );
+                    }
                     this->to_dead();
                     return false;
                 }
@@ -229,6 +310,24 @@ bool ud_socket_t::retry_send() {
         else break;
     }
 
+    m_logger->debug(
+        std::format(
+            "Sent {} bytes of data to {} during the retry sequence [{}]",
+            m_pending_messages.front().data.size(),
+            m_pending_messages.front().recipient,
+            std::string_view(reinterpret_cast<const char*>(m_pending_messages.front().data.data()), m_pending_messages.front().data.size())
+        )
+    );
+    if (m_pending_messages.front().on_delayed_result) {
+        lock.unlock();
+        std::invoke(
+            m_pending_messages.front().on_delayed_result,
+            std::string_view{m_pending_messages.front().recipient},
+            send_result_t::RECIPIENT_AWAY,
+            std::span<const std::byte>{m_pending_messages.front().data}
+        );
+        lock.lock();
+    }
     m_pending_messages.pop();
     return true;
 }
@@ -260,19 +359,20 @@ bool ud_socket_t::receive() {
         if (-1 == bytes_read) {
             switch (errno) {
                 CASE_EAGAIN_EWOULDBLOCK: {
+                    m_logger->debug("Tried to read but there is nothing in the buffer, will retry later");
                     return false;
                 }
 
-                case EINTR: /* interrupted; try again */ {
-                    continue;
-                }
-
-                case ECONNREFUSED: /* try again */ {
+                /* interrupted or bounceback */
+                case EINTR: [[fallthrough]];
+                case ECONNREFUSED: {
+                    m_logger->debug("Read interrupted, will retry again");
                     continue;
                 }
 
                 default: {
                     /* exceptional case; unsupported */
+                    m_logger->debug("Fatal error occurred while trying to read the buffer, socket died");
                     this->to_dead();
                     return false;
                 }
@@ -281,9 +381,20 @@ bool ud_socket_t::receive() {
         else break;
     }
 
-    std::unique_lock<std::mutex> lock(m_mutex);
 
     const auto sender_pathname = std::string_view{sender_address.sun_path};
+
+    m_logger->debug(
+        std::format(
+            "Received {} bytes of data from {} [{}]",
+            bytes_read,
+            sender_pathname,
+            std::string_view(reinterpret_cast<const char*>(buffer.data()), bytes_read)
+        )
+    );
+
+
+    std::unique_lock<std::mutex> lock(m_mutex);
 
     if (!m_cache.contains(sender_pathname)) {
         m_cache.emplace(std::string{sender_pathname}, sender_address);
@@ -334,19 +445,21 @@ void ud_socket_t::serve() {
         if (wakeupfd_readable()) {
             /* drain */
             uint64_t flag{0};
-            while(read(m_wakeup_fd, &flag, sizeof(flag)) > 0) {}
+            read(m_wakeup_fd, &flag, sizeof(flag));
 
             /* subscribe to "writeable" notifications */
             poll_fds[0].events |= POLLOUT;
+
+            /* allow it to read the event immeditely; not in next iteration */
+            poll_fds[0].revents |= POLLOUT;
         }
 
         if (socketfd_writeable()) {
-            std::lock_guard<std::mutex> lock(m_mutex);
-
             /* retry sending */
             while (this->retry_send()) {}
 
             /* unsubscribe from writeable if all are sent  */
+            std::lock_guard<std::mutex> lock(m_mutex);
             if (m_pending_messages.empty()) {
                 poll_fds[0].events &= ~POLLOUT;
             }
@@ -360,7 +473,7 @@ void ud_socket_t::serve() {
         if (shutdownfd_readable()) {
             /* drain the buffer */
             uint64_t read_data{0};
-            while(read(m_shutdown_fd, &read_data, sizeof(read_data)) > 0) {}
+            read(m_shutdown_fd, &read_data, sizeof(read_data));
 
             /* break and exit */
             break;

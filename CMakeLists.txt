@@ -1,80 +1,45 @@
 cmake_minimum_required(VERSION 3.20.0)
-
 project(threesomeip)
 
-# SET(3RD_PARTIES "${CMAKE_SOURCE_DIR}/3rd_party")
-# add_subdirectory("${3RD_PARTIES}/json")
 
-# add_executable(threesomeip_runtime)
+SET(3RD_PARTIES "${CMAKE_SOURCE_DIR}/3rd_party")
+SET(SPD     "${3RD_PARTIES}/spdlog")
+SET(JSON    "${3RD_PARTIES}/json")
 
-# target_sources( threesomeip_runtime
-#     PRIVATE
-#         src/main_runtime.cpp
-#         src/runtime.cpp
-#         src/configurable.cpp
-# )
+SET(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 
-# target_include_directories( threesomeip_runtime
-#     PRIVATE
-#         include/
-# )
+add_subdirectory( ${SPD} )
 
-# target_compile_options( threesomeip_runtime
-#     PRIVATE
-#         -Wall
-#         -Wextra
-#         -pedantic
-#         -std=c++23
-#         -O0
-# )
+macro( build_application application main_file)
 
-# target_link_libraries( threesomeip_runtime
-#     PRIVATE
-#         nlohmann_json
-# )
+    add_executable( ${application} )
 
-add_executable( test1 )
+    target_sources( ${application}
+        PRIVATE
+            ${main_file}
+            src/udsocket.cpp
+    )
 
-target_sources( test1
-    PRIVATE
-        src/test1.cpp
-        src/udsocket.cpp
-)
+    target_include_directories( ${application}
+        PRIVATE
+            include/
+            ${SPD}/include
+    )
 
-target_include_directories( test1
-    PRIVATE
-        include/
-)
+    target_compile_options( ${application}
+        PRIVATE
+            -Wall
+            -Wextra
+            -pedantic
+            -std=c++23
+            -O0
+    )
 
-target_compile_options( test1
-    PRIVATE
-        -Wall
-        -Wextra
-        -pedantic
-        -std=c++23
-        -O0
-        -g
-)
+    target_link_libraries( ${application}
+        PRIVATE
+            spdlog
+    )
+endmacro()
 
-add_executable( test2 )
-
-target_sources( test2
-    PRIVATE
-        src/test2.cpp
-        src/udsocket.cpp
-)
-
-target_include_directories( test2
-    PRIVATE
-        include/
-)
-
-target_compile_options( test2
-    PRIVATE
-        -Wall
-        -Wextra
-        -pedantic
-        -std=c++23
-        -O0
-        -g
-)
+build_application( test1 src/test1.cpp)
+build_application( test2 src/test2.cpp)

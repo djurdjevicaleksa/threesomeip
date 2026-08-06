@@ -33,7 +33,8 @@ public:
 
 private:
 
-    int m_ud_socket;
+
+
 };
 
 
