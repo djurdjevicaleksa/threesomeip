@@ -52,8 +52,8 @@
 namespace threesomeip::ipc {
 
 
-ud_socket_t::ud_socket_t(std::string_view own_pathname, std::optional<ReceiveCallback> on_receive) noexcept:
-    m_ud_socket_fd(-1), m_wakeup_fd(-1), m_pathname(own_pathname), m_on_receive(std::move(on_receive.value_or(nullptr))) {
+ud_socket_t::ud_socket_t(const socket_handle_t& self, std::optional<ReceiveCallback> on_receive) noexcept:
+    m_ud_socket_fd(-1), m_wakeup_fd(-1), m_self(self), m_on_receive(std::move(on_receive.value_or(nullptr))) {
     this->init();
 }
 
@@ -64,7 +64,7 @@ ud_socket_t::ud_socket_t() noexcept:
 
 void ud_socket_t::init() noexcept {
 
-    if (m_pathname.has_value()) m_logger = spdlog::stdout_color_mt(std::filesystem::path(m_pathname.value()).filename(), spdlog::color_mode::always);
+    if (m_self.has_value()) m_logger = spdlog::stdout_color_mt(std::filesystem::path(m_self.value()).filename(), spdlog::color_mode::always);
     else m_logger = spdlog::stdout_color_mt(std::format("unnamed_socket_{}", std::rand() % 1024));
 
     m_logger->set_level(spdlog::level::debug);
@@ -88,7 +88,7 @@ void ud_socket_t::init() noexcept {
         m_logger->info("Set to non-blocking mode");
 
         /* If its not named, it's done */
-        if (!m_pathname.has_value()) {
+        if (!m_self.has_value()) {
             this->to_alive();
             m_logger->info("Initialized");
             return;
@@ -101,7 +101,7 @@ void ud_socket_t::init() noexcept {
             address.sun_path,
             sizeof(address.sun_path),
             "%s",
-            m_pathname.value().c_str()
+            m_self.value().c_str()
         );
 
         (void) unlink(address.sun_path);
@@ -152,8 +152,8 @@ void ud_socket_t::on_dead() {
         m_ud_socket_fd = -1;
     }
 
-    if (m_pathname.has_value()) {
-        unlink(m_pathname.value().c_str());
+    if (m_self.has_value()) {
+        unlink(m_self.value().c_str());
     }
     m_logger->info("Cleanup; Socket proclaimed dead");
 }
@@ -163,7 +163,7 @@ ud_socket_t::~ud_socket_t() noexcept {
 }
 
 auto ud_socket_t::send(
-    std::string_view recepient_pathname,
+    const socket_handle_t& recipient,
     std::span<const std::byte> data,
     std::optional<DelayedResultCallback> on_delayed_result) noexcept
 -> send_result_t {
@@ -174,14 +174,14 @@ auto ud_socket_t::send(
     std::lock_guard<std::mutex> lock(m_mutex);
 
     /* immediately cache the recipient's address */
-    if (!m_cache.contains(recepient_pathname)) {
-        sockaddr_un& entry = m_cache.emplace(std::string{recepient_pathname}, sockaddr_un{}).first->second;
+    if (!m_cache.contains(recipient)) {
+        sockaddr_un& entry = m_cache[recipient];
         entry.sun_family = AF_UNIX;
         std::snprintf(
             entry.sun_path,
             sizeof(entry.sun_path),
             "%s",
-            recepient_pathname.data()
+            recipient.data()
         );
     }
 
@@ -192,7 +192,7 @@ auto ud_socket_t::send(
             data.data(),
             data.size(),
             0,
-            reinterpret_cast<sockaddr*>(&m_cache.find(recepient_pathname)->second),
+            reinterpret_cast<sockaddr*>(&m_cache[recipient]),
             sizeof(sockaddr_un))
         ) {
             switch (errno) {
@@ -200,7 +200,7 @@ auto ud_socket_t::send(
                     m_logger->debug("Socket kernel buffer full, will retry to send the message later");
 
                     m_pending_messages.emplace(
-                        std::string{recepient_pathname},
+                        recipient,
                         std::vector(data.begin(), data.end()),
                         /* bytes_already_written always 0 for UNIX DGRAM */ 0,
                         std::move(on_delayed_result.value_or(nullptr))
@@ -214,7 +214,7 @@ auto ud_socket_t::send(
                 }
 
                 CASE_ENOENT_ECONNREFUSED: {
-                    m_logger->debug(std::format("The recipient ({}) is unreachable", recepient_pathname));
+                    m_logger->debug(std::format("The recipient ({}) is unreachable", recipient));
                     return send_result_t::RECIPIENT_AWAY;
                 }
 
@@ -237,7 +237,7 @@ auto ud_socket_t::send(
         std::format(
             "Sent {} bytes of data to {} [{}]",
             data.size(),
-            recepient_pathname,
+            recipient,
             std::string_view(reinterpret_cast<const char*>(data.data()), data.size())
         )
     );
@@ -257,7 +257,7 @@ bool ud_socket_t::retry_send() {
             m_pending_messages.front().data.data(),
             m_pending_messages.front().data.size(),
             0,
-            reinterpret_cast<const sockaddr*>(&m_cache.find(m_pending_messages.front().recipient)->second),
+            reinterpret_cast<const sockaddr*>(&m_cache[m_pending_messages.front().recipient]),
             sizeof(sizeof(sockaddr_un))
         )) {
             switch (errno) {
@@ -279,8 +279,8 @@ bool ud_socket_t::retry_send() {
                         lock.unlock();
                         std::invoke(
                             m_pending_messages.front().on_delayed_result,
-                            std::string_view{m_pending_messages.front().recipient},
                             send_result_t::RECIPIENT_AWAY,
+                            m_pending_messages.front().recipient,
                             std::span<const std::byte>{m_pending_messages.front().data}
                         );
                         lock.lock();
@@ -297,8 +297,8 @@ bool ud_socket_t::retry_send() {
                         lock.unlock();
                         std::invoke(
                             m_pending_messages.front().on_delayed_result,
-                            std::string_view{m_pending_messages.front().recipient},
                             send_result_t::SOCKET_DEAD,
+                            m_pending_messages.front().recipient,
                             std::span<const std::byte>{m_pending_messages.front().data}
                         );
                     }
@@ -322,8 +322,8 @@ bool ud_socket_t::retry_send() {
         lock.unlock();
         std::invoke(
             m_pending_messages.front().on_delayed_result,
-            std::string_view{m_pending_messages.front().recipient},
-            send_result_t::RECIPIENT_AWAY,
+            send_result_t::SENT,
+            m_pending_messages.front().recipient,
             std::span<const std::byte>{m_pending_messages.front().data}
         );
         lock.lock();
@@ -359,7 +359,6 @@ bool ud_socket_t::receive() {
         if (-1 == bytes_read) {
             switch (errno) {
                 CASE_EAGAIN_EWOULDBLOCK: {
-                    m_logger->debug("Tried to read but there is nothing in the buffer, will retry later");
                     return false;
                 }
 
@@ -382,13 +381,12 @@ bool ud_socket_t::receive() {
     }
 
 
-    const auto sender_pathname = std::string_view{sender_address.sun_path};
+    const auto sender_handle = socket_handle_t{sender_address.sun_path};
 
     m_logger->debug(
         std::format(
-            "Received {} bytes of data from {} [{}]",
+            "Received {} bytes of data [{}]",
             bytes_read,
-            sender_pathname,
             std::string_view(reinterpret_cast<const char*>(buffer.data()), bytes_read)
         )
     );
@@ -396,8 +394,8 @@ bool ud_socket_t::receive() {
 
     std::unique_lock<std::mutex> lock(m_mutex);
 
-    if (!m_cache.contains(sender_pathname)) {
-        m_cache.emplace(std::string{sender_pathname}, sender_address);
+    if (!m_cache.contains(sender_handle)) {
+        m_cache.emplace(sender_handle, sender_address);
     }
 
     if (m_on_receive.has_value() and m_on_receive.value()) {
@@ -406,7 +404,7 @@ bool ud_socket_t::receive() {
         std::invoke(
             m_on_receive.value(),
             *this,
-            sender_pathname,
+            sender_handle,
             std::span<std::byte>(buffer).subspan(0, bytes_read)
         );
     }
@@ -418,7 +416,7 @@ void ud_socket_t::serve() {
     pollfd poll_fds[]{
         {
             .fd = m_ud_socket_fd,
-            .events = m_pathname.has_value() ? short{POLLIN} : short{0},
+            .events = m_self.has_value() ? short{POLLIN} : short{0},
             .revents{}
         },
         {

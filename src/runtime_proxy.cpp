@@ -1,63 +1,47 @@
 /*=====*\
  * C++ *
 \*=====*/
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <sys/un.h>
-#include <cstring>
 #include <string>
-#include <unistd.h>
+#include <cstdint>
+#include <format>
+#include <filesystem>
+#include <array>
+#include <cstddef>
+#include <cstring>
 
 /*=============*\
  * APPLICATION *
 \*=============*/
 #include <runtime_proxy.hpp>
+#include <serialization.hpp>
 
 /*===========*\
  * 3RD PARTY *
 \*===========*/
 
 
-namespace threesomeip {
+namespace fs = std::filesystem;
 
 
-runtime_proxy_t::runtime_proxy_t(std::string_view app_name, uint16_t app_id, std::string_view runtime_socket_name) {
+namespace threesomeip::runtime {
 
-    // TODO work on implementing SOCK_STREAM as the comm type
-
-    if (int sock = socket(AF_UNIX, SOCK_STREAM, 0); sock < 0) {
-        // Handle error
-        return;
-    }
-    else {
-        m_ud_socket = sock;
-    }
-
-    sockaddr_un address{};
-    address.sun_family = AF_UNIX;
-    std::snprintf(
-        address.sun_path,
-        sizeof(address.sun_path),
-        "/home/lecq/Desktop/actuallySomeip/sockets/%s_%d.sock",
-        app_name.data(),
-        app_id
-    );
-
-    unlink(address.sun_path);
-
-    if (bind(m_ud_socket, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-        // Handle error
-        close(m_ud_socket);
-    }
-}
-
-runtime_proxy_t::~runtime_proxy_t() {
-    close(m_ud_socket);
-}
-
-int runtime_proxy_t::registerApplication(std::string_view name, uint16_t id) {
+runtime_proxy_t::runtime_proxy_t(const fs::path& sockets_path, std::string_view app_name, uint16_t app_id, std::string_view runtime_name) noexcept:
+    m_own_socket_handle((sockets_path / std::format("{}_{}.sock", app_name, app_id)).filename()),
+    m_runtime_handle((sockets_path / std::format("{}.sock", runtime_name)).filename()),
+    m_socket(m_own_socket_handle, std::bind_front(&runtime_proxy_t::handle_on_receive, this)) {
 
 }
+
+bool runtime_proxy_t::registerApplication(const std::string_view app_name, const uint16_t app_id) {
+
+    
+    std::array<std::byte, threesomeip::ipc::MAX_PAYLOAD_SIZE> message_buffer{};
+    threesomeip::ipc::serdes::serialize(message_buffer.data(), app_name, app_id);
+
+
+}
+
+
 
 
 

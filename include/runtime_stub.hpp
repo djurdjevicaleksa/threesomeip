@@ -4,8 +4,6 @@
 /*=====*\
  * C++ *
 \*=====*/
-#include <span>
-#include <cstddef>
 
 /*=============*\
  * APPLICATION *
@@ -16,7 +14,7 @@
 \*===========*/
 
 
-namespace threesomeip {
+namespace threesomeip::runtime {
 
 
 class runtime_stub_t {
@@ -30,6 +28,6 @@ private:
 };
 
 
-} // namespace threesomeip
+} // namespace threesomeip::runtime
 
 #endif // _RUNTIME_STUB_HPP

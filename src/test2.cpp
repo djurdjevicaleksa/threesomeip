@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
         const auto ret = socket.send(
             "/home/lecq/Desktop/threesomeip/ipc_sockets/test1.sock",
             payload,
-            [&delayed_return] (const std::string_view recipient, const threesomeip::ipc::send_result_t result, const std::span<const std::byte> data) {
+            [&delayed_return] (const threesomeip::ipc::send_result_t result, const threesomeip::ipc::socket_handle_t& recipient, const std::span<const std::byte> data) {
                 std::cout << "Delayed result of sending data to " << recipient << std::endl;
                 delayed_return = result;
             }
@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
         const auto ret = socket.send(
             "/home/lecq/Desktop/threesomeip/ipc_sockets/test1.sock",
             payload,
-            [] (const std::string_view recipient, const threesomeip::ipc::send_result_t result, const std::span<const std::byte> data) {
+            [] (const threesomeip::ipc::send_result_t result, const threesomeip::ipc::socket_handle_t& recipient, const std::span<const std::byte> data) {
                 std::cout << "Delayed result of sending data to " << recipient << std::endl;
             }
         );
