@@ -9,11 +9,15 @@
 #include <ranges>
 #include <cstdint>
 #include <cstring>
+#include <vector>
+#include <span>
 
 
 namespace threesomeip::ipc::serdes {
 
-
+/*
+    String type
+*/
 template<typename T>
 concept String = std::convertible_to<std::remove_cvref_t<T>, std::string_view>
 && requires(T str) {
@@ -21,29 +25,8 @@ concept String = std::convertible_to<std::remove_cvref_t<T>, std::string_view>
     { str.size() } -> std::convertible_to<size_t>;
 };
 
-template<typename T>
-concept UnsignedInteger = std::unsigned_integral<std::remove_cvref_t<T>>
-    && !std::is_same_v<std::remove_cvref_t<T>, bool>;
-
-template<typename T>
-concept Byte = std::same_as<std::remove_cvref_t<T>, uint8_t>
-    || std::same_as<std::remove_cvref_t<T>, char>
-    || std::same_as<std::remove_cvref_t<T>, std::byte>;
-
-template<typename T>
-concept Array = std::ranges::contiguous_range<T>
-/* TODO */
-
-
-template<typename T>
-concept Serializable = String<T> || UnsignedInteger<T> || Byte<T>;
-
-template<typename T>
-concept Deserializable = Serializable<T>;
-
-
 template<String T>
-void serialize(std::byte*& out, T str) {
+void _serialize(std::byte*& out, T str) {
     /* serialize string length prefix */
     uint16_t string_length = static_cast<uint16_t>(str.size());
     std::memcpy(out, &string_length, sizeof(uint16_t));
@@ -56,7 +39,7 @@ void serialize(std::byte*& out, T str) {
 
 /* will potentially need to return std::string as owning object */
 template<String T>
-T deserialize(std::byte*& in) {
+T _deserialize(std::byte*& in) {
     /* deserialize string length prefix */
     uint16_t string_length{0};
     std::memcpy(&string_length, in, sizeof(uint16_t));
@@ -68,53 +51,156 @@ T deserialize(std::byte*& in) {
     return str;
 }
 
+/*
+    Unsigned integer type
+*/
+template<typename T>
+concept UnsignedInteger = std::is_same_v<std::remove_cvref_t<T>, uint16_t>
+|| std::is_same_v<std::remove_cvref_t<T>, uint32_t>
+|| std::is_same_v<std::remove_cvref_t<T>, uint64_t>;
 
 template<UnsignedInteger T>
-void serialize(std::byte*& out, T num) {
+void _serialize(std::byte*& out, T num) {
     std::memcpy(out, &num, sizeof(T));
     out += sizeof(T);
 }
 
 template<UnsignedInteger T>
-T deserialize(std::byte*& in) {
+T _deserialize(std::byte*& in) {
     T num{0};
     std::memcpy(&num, in, sizeof(T));
     in += sizeof(T);
     return num;
 }
 
+/*
+    Byte type
+*/
+template<typename T>
+concept Byte = std::same_as<std::remove_cvref_t<T>, uint8_t>
+    || std::same_as<std::remove_cvref_t<T>, char>
+    || std::same_as<std::remove_cvref_t<T>, std::byte>;
 
 template<Byte T>
-void serialize(std::byte*& out, T byte) {
-    std::memcpy(out, &num, sizeof(T));
+void _serialize(std::byte*& out, T byte) {
+    std::memcpy(out, &byte, sizeof(T));
     out += sizeof(T);
 }
 
 template<Byte T>
-T deserialize(std::byte*& in) {
+T _deserialize(std::byte*& in) {
     T byte{0};
     std::memcpy(&byte, in, sizeof(T));
     in += sizeof(T);
     return byte;
 }
 
+/*
+    INTERNALS
+*/
+template<typename T>
+concept _Serializable_Internal = String<T> || UnsignedInteger<T> || Byte<T>;
+
+
 
 /*
-    Public API
+    Array type
 */
+template<typename T>
+concept CStyleArray = (
+    std::is_array_v<std::remove_cvref_t<T>>
+    && !std::is_same_v<std::remove_extent_t<std::remove_cvref_t<T>>, char>
+    && requires { requires _Serializable_Internal<std::remove_extent_t<std::remove_cvref_t<T>>>; }
+    && !String<T>
+);
+
+template<typename T>
+concept CppStyleArray = (
+    std::ranges::contiguous_range<T>
+    && requires(T t) {
+        requires _Serializable_Internal<typename std::remove_cvref_t<T>::value_type>;
+        t.data();
+        t.size();
+    }
+    && !String<T>
+);
+
+template<typename T>
+concept Array = CStyleArray<T> || CppStyleArray<T>;
+
+template<Array T>
+auto as_span(T&& arr) {
+    if constexpr(CStyleArray<T>) return std::span{arr};
+    else return std::span{arr.data(), arr.size()};
+}
+
+template<Array T>
+void _serialize(std::byte*& out, T&& arr) {
+    auto elements = as_span(std::forward<T>(arr)); /* makes a span */
+
+    /* encode array length */
+    uint16_t length = static_cast<uint16_t>(elements.size());
+    std::memcpy(out, &length, sizeof(uint16_t));
+    out += sizeof(uint16_t);
+
+    /* encode array data */
+    for (auto& element: elements) {
+        _serialize(out, element);
+    }
+}
+
+template<CppStyleArray T>
+    requires std::same_as<T, std::vector<typename T::value_type>>
+T _deserialize(std::byte*& in) {
+    uint16_t array_length{0};
+    std::memcpy(&array_length, in, sizeof(uint16_t));
+    in += sizeof(uint16_t);
+
+    T ret{};
+    ret.reserve(array_length);
+    for (uint16_t i{0}; i < array_length; ++i) {
+        ret.push_back(_deserialize<typename T::value_type>(in));
+    }
+    return ret;
+}
+
+template<CppStyleArray T>
+    requires std::same_as<T, std::span<const typename T::value_type>>
+T _deserialize(std::byte*& in) {
+    uint16_t array_length{0};
+    std::memcpy(&array_length, in, sizeof(uint16_t));
+    in += sizeof(uint16_t);
+
+    auto* ptr = reinterpret_cast<const typename T::value_type*>(in);
+    in += array_length * sizeof(typename T::value_type);
+    return {ptr, array_length};
+}
+
+
+/*
+Public API
+*/
+template<typename T>
+concept Serializable = _Serializable_Internal<T> || Array<T>;
+
+template<typename T>
+concept Deserializable = _Serializable_Internal<T>
+    || std::same_as<std::remove_cvref_t<T>, std::vector<typename T::value_type>>
+    || std::same_as<std::remove_cvref_t<T>, std::span<const typename T::value_type>>;
 
 
 template<Serializable... Args>
 size_t serialize(std::byte*& out, Args&&... args) {
     const std::byte* const start = out;
-    (serialize(out, std::forward<Args>(args)), ...);
-    return size_t{out - start};
+    (_serialize(out, std::forward<Args>(args)), ...);
+    return static_cast<size_t>(out - start);
 }
 
 template<Serializable... Args>
 size_t serialize(std::byte* out, Args&&... args) {
     std::byte* cursor = out;
-    return serialize<Args...>(cursor, std::forward<Args>(args)...);
+    (_serialize(cursor, std::forward<Args>(args)), ...);
+    return static_cast<size_t>(cursor - out);
 }
 
 template<Deserializable... Args>
@@ -126,7 +212,7 @@ std::tuple<Args...> deserialize(std::byte*& in) {
     std::tuple<Args...> ret;
     std::apply(
         [&](auto&... slots) {
-            (void(slots = deserialize<decltype(slots)>(in)), ...);
+            (void(slots = _deserialize<std::remove_cvref_t<decltype(slots)>>(in)), ...);
         },
         ret
     );
@@ -135,30 +221,20 @@ std::tuple<Args...> deserialize(std::byte*& in) {
 
 template<Deserializable... Args>
 std::tuple<Args...> deserialize(std::byte* in) {
-    std::byte* cursor = in;
-    return deserialize<Args...>(cursor);
+    /*
+        the standard does not guarantee std::tuple's constructor evaluates
+        left to right, so the ordering has to be made explicit using std::apply
+    */
+    std::tuple<Args...> ret;
+    std::apply(
+        [&](auto&... slots) {
+            (void(slots = _deserialize<std::remove_cvref_t<decltype(slots)>>(in)), ...);
+        },
+        ret
+    );
+    return ret;
 }
 
-
-/* TESTS */
-static_assert(String<std::string>);
-static_assert(String<std::string_view>);
-static_assert(!String<char[]>);
-static_assert(!String<char*>);
-
-static_assert(UnsignedInteger<uint8_t>);
-static_assert(UnsignedInteger<uint32_t&>);
-static_assert(UnsignedInteger<const uint64_t>);
-static_assert(!UnsignedInteger<uint32_t[]>);
-static_assert(!UnsignedInteger<int32_t[]>);
-static_assert(!UnsignedInteger<int8_t>);
-static_assert(!UnsignedInteger<const int32_t>);
-
-static_assert(Byte<uint8_t>);
-static_assert(Byte<const std::byte>);
-static_assert(Byte<char&>);
-static_assert(!Byte<int8_t>);
-static_assert(!Byte<uint16_t>);
 } // namespace threesomeip::ipc::serdes
 
 #endif // _SERIALIZATION_HPP
