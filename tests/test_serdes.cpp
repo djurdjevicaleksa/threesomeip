@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <algorithm>
+#include <iostream>
 
 /*=============*\
  * APPLICATION *
@@ -130,6 +131,77 @@ TEST(Serdes, ArrayRoundTrip) {
         serialize(buffer.data(), array);
         auto read_array = std::get<0>(deserialize<std::vector<uint16_t>>(buffer.data()));
         ASSERT_TRUE(std::ranges::equal(array, read_array));
+    }
+}
+
+
+namespace {
+
+struct simple_aggregate_t {
+    std::byte field1;
+    uint16_t field2;
+    std::string field3;
+    std::array<uint32_t, 5> field4;
+};
+
+struct complex_aggregate_t {
+    simple_aggregate_t field1;
+    uint32_t field2;
+    simple_aggregate_t field3;
+};
+
+bool operator==(const simple_aggregate_t& a, const simple_aggregate_t& b) {
+    if (a.field1 != b.field1) return false;
+    if (a.field2 != b.field2) return false;
+    if (a.field3 != b.field3) return false;
+    if (!std::ranges::equal(a.field4, b.field4)) return false;
+    return true;
+}
+
+bool operator==(const complex_aggregate_t& a, const complex_aggregate_t& b) {
+    if (a.field1 != b.field1) return false;
+    if (a.field2 != b.field2) return false;
+    if (a.field3 != b.field3) return false;
+    return true;
+}
+
+} // anonymous namespace
+
+TEST(Serdes, AggregateRoundTrip) {
+    {
+        Buffer buffer{};
+        simple_aggregate_t simple_aggregate{
+            .field1{static_cast<std::byte>(1)},
+            .field2{static_cast<uint16_t>(2)},
+            .field3{"threesomeip"},
+            .field4{3, 4, 5, 6, 7}
+        };
+        serialize(buffer.data(), simple_aggregate);
+        auto read_simple_aggregate = std::get<0>(deserialize<simple_aggregate_t>(buffer.data()));
+
+        ASSERT_EQ(simple_aggregate, read_simple_aggregate);
+    }
+    {
+        Buffer buffer{};
+        complex_aggregate_t complex_aggregate{
+            .field1{
+                .field1{static_cast<std::byte>(1)},
+                .field2{static_cast<uint16_t>(2)},
+                .field3{"threesomeip"},
+                .field4{3, 4, 5, 6, 7}
+            },
+            .field2{8},
+            .field3{
+                .field1{static_cast<std::byte>(9)},
+                .field2{static_cast<uint16_t>(10)},
+                .field3{"autosar"},
+                .field4{11, 12, 13, 14, 15}
+            }
+        };
+        serialize(buffer.data(), complex_aggregate);
+        auto read_complex_aggregate = std::get<0>(deserialize<complex_aggregate_t>(buffer.data()));
+
+        ASSERT_EQ(complex_aggregate, read_complex_aggregate);
     }
 }
 
