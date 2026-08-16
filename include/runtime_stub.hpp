@@ -1,18 +1,15 @@
-#ifndef _RUNTIME_PROXY_HPP
-#define _RUNTIME_PROXY_HPP
+#ifndef _RUNTIME_STUB_HPP
+#define _RUNTIME_STUB_HPP
 
 /*=====*\
  * C++ *
 \*=====*/
-#include <cstdint>
-#include <string>
-#include <span>
 #include <filesystem>
 
 /*=============*\
  * APPLICATION *
 \*=============*/
-#include <configuration.hpp>
+#include <ipc_format.hpp>
 #include <udsocket.hpp>
 
 /*===========*\
@@ -26,16 +23,10 @@ namespace fs = std::filesystem;
 namespace threesomeip::runtime {
 
 
-class runtime_proxy_t {
+class runtime_stub_t {
 public:
 
-    runtime_proxy_t(const fs::path& sockets_path, std::string_view app_name, uint16_t app_id, std::string_view runtime_name) noexcept;
-
-
-    bool registerApplication();
-    bool unregisterApplication();
-    bool offerServices(std::span<config::service_configuration_t> services);
-    bool requestServices(std::span<config::service_configuration_t> services);
+    runtime_stub_t(const fs::path& sockets_path, std::string_view runtime_name) noexcept;
 
 private:
 
@@ -49,18 +40,12 @@ private:
         threesomeip::ipc::ud_socket_t& self,
         const threesomeip::ipc::socket_handle_t& sender,
         const std::span<const std::byte> data
-    ) noexcept {};
-
-
-    const std::string m_app_name;
-    const uint16_t m_app_id;
+    ) noexcept;
 
     threesomeip::ipc::socket_handle_t m_own_socket_handle;
-    threesomeip::ipc::socket_handle_t m_runtime_handle;
-
     threesomeip::ipc::ud_socket_t m_socket;
 };
 
 } // namespace threesomeip::runtime
 
-#endif // _RUNTIME_PROXY_HPP
+#endif // _RUNTIME_STUB_HPP

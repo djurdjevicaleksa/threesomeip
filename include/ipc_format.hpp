@@ -41,8 +41,5 @@ struct ipc_message_header_t {
     uint16_t payload_length;
 };
 
-constexpr size_t SERIALIZED_MESSAGE_HEADER_SIZE{sizeof(ipc_message_header_t) + /* array length prefix */ sizeof(uint16_t)};
-
-
 } // namespace threesomeip::ipc
 #endif // _IPC_FORMAT_HPP

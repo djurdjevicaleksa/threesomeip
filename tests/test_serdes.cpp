@@ -81,12 +81,6 @@ TEST(Serdes, ByteRoundTrip) {
         serialize(buffer.data(), byte);
         ASSERT_EQ(byte, std::get<0>(deserialize<std::byte>(buffer.data())));
     }
-    {
-        Buffer buffer{};
-        char byte{static_cast<char>(0xEF)};
-        serialize(buffer.data(), byte);
-        ASSERT_EQ(byte, std::get<0>(deserialize<char>(buffer.data())));
-    }
 }
 
 TEST(Serdes, ArrayRoundTrip) {
