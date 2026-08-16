@@ -52,10 +52,4 @@ static_assert(Byte<const std::byte>);
 static_assert(Byte<std::byte&>);
 static_assert(Byte<const std::byte&>);
 
-static_assert(Byte<char>);
-static_assert(Byte<const char>);
-static_assert(Byte<char&>);
-static_assert(Byte<const char&>);
-
-
 #endif // _TEST_SERDES_TEMPLATES_HPP

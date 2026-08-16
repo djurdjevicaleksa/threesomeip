@@ -14,6 +14,7 @@
  * C++ *
 \*=====*/
 #include <serialization.hpp>
+#include <configuration.hpp>
 
 
 namespace threesomeip::ipc {
@@ -40,6 +41,15 @@ struct ipc_message_header_t {
     uint16_t _reserved;
     uint16_t payload_length;
 };
+
+struct ipc_register_message_t {
+    std::string_view application_name;
+    uint16_t application_id;
+};
+
+using ipc_unregister_message_t = ipc_register_message_t;
+using ipc_offer_services_message_t = std::span<const threesomeip::config::service_configuration_t>;
+using ipc_request_services_message_t = std::span<const threesomeip::config::service_configuration_t>;
 
 } // namespace threesomeip::ipc
 #endif // _IPC_FORMAT_HPP

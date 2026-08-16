@@ -638,7 +638,7 @@ size_t serialize(std::byte* out, Args&&... args) {
 }
 
 template<Deserializable... Args>
-std::tuple<Args...> deserialize(const std::byte*& in) {
+auto deserialize(const std::byte*& in) {
     /*
         Force correct sequential evaluation of deserialization statements
         because they share and modify state (in)
@@ -650,11 +650,14 @@ std::tuple<Args...> deserialize(const std::byte*& in) {
         },
         ret
     );
-    return ret;
+    if constexpr (sizeof...(Args) == 1) {
+        return std::get<0>(ret);
+    }
+    else return ret;
 }
 
 template<Deserializable... Args>
-std::tuple<Args...> deserialize(const std::byte* in) {
+auto deserialize(const std::byte* in) {
     /*
         Force correct sequential evaluation of deserialization statements
         because they share and modify state (in)
@@ -667,7 +670,10 @@ std::tuple<Args...> deserialize(const std::byte* in) {
         },
         ret
     );
-    return ret;
+    if constexpr (sizeof...(Args) == 1) {
+        return std::get<0>(ret);
+    }
+    else return ret;
 }
 
 template<Serializable... Args>

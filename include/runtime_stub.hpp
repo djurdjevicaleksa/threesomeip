@@ -5,6 +5,7 @@
  * C++ *
 \*=====*/
 #include <filesystem>
+#include <string>
 
 /*=============*\
  * APPLICATION *
@@ -15,10 +16,10 @@
 /*===========*\
  * 3RD PARTY *
 \*===========*/
+#include <spdlog/logger.h>
 
 
 namespace fs = std::filesystem;
-
 
 namespace threesomeip::runtime {
 
@@ -26,7 +27,10 @@ namespace threesomeip::runtime {
 class runtime_stub_t {
 public:
 
-    runtime_stub_t(const fs::path& sockets_path, std::string_view runtime_name) noexcept;
+    runtime_stub_t(
+        const fs::path& sockets_path,
+        std::string_view runtime_application_name
+    ) noexcept;
 
 private:
 
@@ -42,8 +46,12 @@ private:
         const std::span<const std::byte> data
     ) noexcept;
 
+    std::string_view ipc_message_type_name(threesomeip::ipc::message_type_t type);
+
     threesomeip::ipc::socket_handle_t m_own_socket_handle;
     threesomeip::ipc::ud_socket_t m_socket;
+
+    std::shared_ptr<spdlog::logger> m_logger;
 };
 
 } // namespace threesomeip::runtime

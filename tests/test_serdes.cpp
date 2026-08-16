@@ -37,13 +37,13 @@ TEST(Serdes, StringRoundTrip) {
         Buffer buffer{};
         std::string string{"threesomeip"};
         serialize(buffer.data(), string);
-        ASSERT_EQ(string, std::get<0>(deserialize<std::string>(buffer.data())));
+        ASSERT_EQ(string, deserialize<std::string>(buffer.data()));
     }
     {
         Buffer buffer{};
         std::string string{"threesomeip"};
         serialize(buffer.data(), std::string_view(string));
-        ASSERT_EQ(string, std::get<0>(deserialize<std::string_view>(buffer.data())));
+        ASSERT_EQ(string, deserialize<std::string_view>(buffer.data()));
     }
 }
 
@@ -52,19 +52,19 @@ TEST(Serdes, UnsignedIntegerRoundTrip) {
         Buffer buffer{};
         uint16_t integer{0xDEAD};
         serialize(buffer.data(), integer);
-        ASSERT_EQ(integer, std::get<0>(deserialize<uint16_t>(buffer.data())));
+        ASSERT_EQ(integer, deserialize<uint16_t>(buffer.data()));
     }
     {
         Buffer buffer{};
         uint32_t integer{0xDEADBEEF};
         serialize(buffer.data(), integer);
-        ASSERT_EQ(integer, std::get<0>(deserialize<uint32_t>(buffer.data())));
+        ASSERT_EQ(integer, deserialize<uint32_t>(buffer.data()));
     }
     {
         Buffer buffer{};
         uint64_t integer{0xDEADBEEFBABADEDA};
         serialize(buffer.data(), integer);
-        ASSERT_EQ(integer, std::get<0>(deserialize<uint64_t>(buffer.data())));
+        ASSERT_EQ(integer, deserialize<uint64_t>(buffer.data()));
     }
 }
 
@@ -73,13 +73,13 @@ TEST(Serdes, ByteRoundTrip) {
         Buffer buffer{};
         uint8_t byte{0xAB};
         serialize(buffer.data(), byte);
-        ASSERT_EQ(byte, std::get<0>(deserialize<uint8_t>(buffer.data())));
+        ASSERT_EQ(byte, deserialize<uint8_t>(buffer.data()));
     }
     {
         Buffer buffer{};
         std::byte byte{0xCD};
         serialize(buffer.data(), byte);
-        ASSERT_EQ(byte, std::get<0>(deserialize<std::byte>(buffer.data())));
+        ASSERT_EQ(byte, deserialize<std::byte>(buffer.data()));
     }
 }
 
@@ -88,42 +88,42 @@ TEST(Serdes, ArrayRoundTrip) {
         Buffer buffer{};
         std::array<uint16_t, 3> array{1, 2, 3};
         serialize(buffer.data(), array);
-        auto read_array = std::get<0>(deserialize<std::span<const uint16_t>>(buffer.data()));
+        auto read_array = deserialize<std::span<const uint16_t>>(buffer.data());
         ASSERT_TRUE(std::ranges::equal(array, read_array));
     }
     {
         Buffer buffer{};
         std::array<uint16_t, 3> array{1, 2, 3};
         serialize(buffer.data(), array);
-        auto read_array = std::get<0>(deserialize<std::vector<uint16_t>>(buffer.data()));
+        auto read_array = deserialize<std::vector<uint16_t>>(buffer.data());
         ASSERT_TRUE(std::ranges::equal(array, read_array));
     }
     {
         Buffer buffer{};
         std::vector<uint16_t> array{1, 2, 3};
         serialize(buffer.data(), array);
-        auto read_array = std::get<0>(deserialize<std::span<const uint16_t>>(buffer.data()));
+        auto read_array = deserialize<std::span<const uint16_t>>(buffer.data());
         ASSERT_TRUE(std::ranges::equal(array, read_array));
     }
     {
         Buffer buffer{};
         std::vector<uint16_t> array{1, 2, 3};
         serialize(buffer.data(), array);
-        auto read_array = std::get<0>(deserialize<std::vector<uint16_t>>(buffer.data()));
+        auto read_array = deserialize<std::vector<uint16_t>>(buffer.data());
         ASSERT_TRUE(std::ranges::equal(array, read_array));
     }
     {
         Buffer buffer{};
         uint16_t array[]{1, 2, 3};
         serialize(buffer.data(), array);
-        auto read_array = std::get<0>(deserialize<std::span<const uint16_t>>(buffer.data()));
+        auto read_array = deserialize<std::span<const uint16_t>>(buffer.data());
         ASSERT_TRUE(std::ranges::equal(array, read_array));
     }
     {
         Buffer buffer{};
         uint16_t array[]{1, 2, 3};
         serialize(buffer.data(), array);
-        auto read_array = std::get<0>(deserialize<std::vector<uint16_t>>(buffer.data()));
+        auto read_array = deserialize<std::vector<uint16_t>>(buffer.data());
         ASSERT_TRUE(std::ranges::equal(array, read_array));
     }
 }
@@ -171,7 +171,7 @@ TEST(Serdes, AggregateRoundTrip) {
             .field4{3, 4, 5, 6, 7}
         };
         serialize(buffer.data(), simple_aggregate);
-        auto read_simple_aggregate = std::get<0>(deserialize<simple_aggregate_t>(buffer.data()));
+        auto read_simple_aggregate = deserialize<simple_aggregate_t>(buffer.data());
 
         ASSERT_EQ(simple_aggregate, read_simple_aggregate);
     }
@@ -193,7 +193,7 @@ TEST(Serdes, AggregateRoundTrip) {
             }
         };
         serialize(buffer.data(), complex_aggregate);
-        auto read_complex_aggregate = std::get<0>(deserialize<complex_aggregate_t>(buffer.data()));
+        auto read_complex_aggregate = deserialize<complex_aggregate_t>(buffer.data());
 
         ASSERT_EQ(complex_aggregate, read_complex_aggregate);
     }

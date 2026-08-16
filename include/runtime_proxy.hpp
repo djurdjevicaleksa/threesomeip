@@ -8,6 +8,7 @@
 #include <string>
 #include <span>
 #include <filesystem>
+#include <optional>
 
 /*=============*\
  * APPLICATION *
@@ -24,18 +25,24 @@ namespace fs = std::filesystem;
 
 
 namespace threesomeip::runtime {
-
+using namespace threesomeip;
 
 class runtime_proxy_t {
 public:
+    runtime_proxy_t(
+        const fs::path& sockets_path,
+        std::string_view app_name,
+        uint16_t app_id,
+        std::string_view runtime_name,
+        std::span<const config::service_configuration_t> offered_services,
+        std::span<const config::service_configuration_t> requested_services
+    ) noexcept;
 
-    runtime_proxy_t(const fs::path& sockets_path, std::string_view app_name, uint16_t app_id, std::string_view runtime_name) noexcept;
 
-
-    bool registerApplication();
-    bool unregisterApplication();
-    bool offerServices(std::span<config::service_configuration_t> services);
-    bool requestServices(std::span<config::service_configuration_t> services);
+    ipc::send_result_t registerApplication(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
+    ipc::send_result_t unregisterApplication(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
+    ipc::send_result_t offerServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
+    ipc::send_result_t requestServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
 
 private:
 
@@ -46,9 +53,9 @@ private:
     // ) noexcept;
 
     void handle_on_receive(
-        threesomeip::ipc::ud_socket_t& self,
-        const threesomeip::ipc::socket_handle_t& sender,
-        const std::span<const std::byte> data
+        [[maybe_unused]] threesomeip::ipc::ud_socket_t& self,
+        [[maybe_unused]] const threesomeip::ipc::socket_handle_t& sender,
+        [[maybe_unused]] const std::span<const std::byte> data
     ) noexcept {};
 
 
@@ -57,6 +64,8 @@ private:
 
     threesomeip::ipc::socket_handle_t m_own_socket_handle;
     threesomeip::ipc::socket_handle_t m_runtime_handle;
+    std::vector<threesomeip::config::service_configuration_t> m_offered_services;
+    std::vector<threesomeip::config::service_configuration_t> m_requested_services;
 
     threesomeip::ipc::ud_socket_t m_socket;
 };

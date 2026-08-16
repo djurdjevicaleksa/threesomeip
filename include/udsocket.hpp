@@ -46,8 +46,8 @@ public:
     using ReceiveCallback = std::function<void(ud_socket_t& self, const socket_handle_t& sender, const std::span<const std::byte> data)>;
 
     struct pending_message_t {
-        const socket_handle_t recipient;
-        const std::vector<std::byte> data;
+        socket_handle_t recipient;
+        std::vector<std::byte> data;
         size_t bytes_already_written; // For future SOCK_STREAM support
         DelayedResultCallback on_delayed_result;
     };

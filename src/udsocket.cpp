@@ -258,7 +258,7 @@ bool ud_socket_t::retry_send() {
             m_pending_messages.front().data.size(),
             0,
             reinterpret_cast<const sockaddr*>(&m_cache[m_pending_messages.front().recipient]),
-            sizeof(sizeof(sockaddr_un))
+            sizeof(sockaddr_un)
         )) {
             switch (errno) {
                 CASE_EAGAIN_EWOULDBLOCK: {
@@ -276,12 +276,14 @@ bool ud_socket_t::retry_send() {
                     m_logger->debug(std::format("The recipient ({}) is unreachable during retrying", m_pending_messages.front().recipient));
 
                     if (m_pending_messages.front().on_delayed_result) {
+                        const auto pending_message = std::move(m_pending_messages.front());
+
                         lock.unlock();
                         std::invoke(
-                            m_pending_messages.front().on_delayed_result,
+                            pending_message.on_delayed_result,
                             send_result_t::RECIPIENT_AWAY,
-                            m_pending_messages.front().recipient,
-                            std::span<const std::byte>{m_pending_messages.front().data}
+                            pending_message.recipient,
+                            std::span<const std::byte>{pending_message.data}
                         );
                         lock.lock();
                     }
@@ -294,12 +296,14 @@ bool ud_socket_t::retry_send() {
                     m_logger->debug("Fatal error occurred while retrying, socket died");
 
                     if (m_pending_messages.front().on_delayed_result) {
+                        const auto pending_message = std::move(m_pending_messages.front());
+
                         lock.unlock();
                         std::invoke(
-                            m_pending_messages.front().on_delayed_result,
+                            pending_message.on_delayed_result,
                             send_result_t::SOCKET_DEAD,
-                            m_pending_messages.front().recipient,
-                            std::span<const std::byte>{m_pending_messages.front().data}
+                            pending_message.recipient,
+                            std::span<const std::byte>{pending_message.data}
                         );
                     }
                     this->to_dead();
@@ -319,12 +323,14 @@ bool ud_socket_t::retry_send() {
         )
     );
     if (m_pending_messages.front().on_delayed_result) {
+        const auto pending_message = std::move(m_pending_messages.front());
+
         lock.unlock();
         std::invoke(
-            m_pending_messages.front().on_delayed_result,
+            pending_message.on_delayed_result,
             send_result_t::SENT,
-            m_pending_messages.front().recipient,
-            std::span<const std::byte>{m_pending_messages.front().data}
+            pending_message.recipient,
+            std::span<const std::byte>{pending_message.data}
         );
         lock.lock();
     }

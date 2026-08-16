@@ -3,6 +3,7 @@
 add_library( threesomeip_impl
     udsocket.cpp
     runtime_proxy.cpp
+    runtime_stub.cpp
 )
 
 target_include_directories( threesomeip_impl
