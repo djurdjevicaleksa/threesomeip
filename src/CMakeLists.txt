@@ -21,8 +21,9 @@ target_compile_options( threesomeip_impl
         -Wall
         -Wextra
         -pedantic
-        -std=c++23
         -O0
+        -g3
+        -Wimplicit-fallthrough
 )
 
 # APPLICATIONS
@@ -42,8 +43,9 @@ macro(build_application application_name)
             -Wall
             -Wextra
             -pedantic
-            -std=c++23
             -O0
+            -g3
+            -Wimplicit-fallthrough
     )
 endmacro()
 

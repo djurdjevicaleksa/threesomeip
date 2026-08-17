@@ -41,8 +41,8 @@ void runtime_stub_t::handle_on_receive(
 
     m_logger->debug("Received {} bytes of data from {} .", data.size(), sender);
 
-    std::byte* message_cursor = const_cast<std::byte*>(data.data());
-    const auto header = serdes::deserialize<ipc_message_header_t>(message_cursor);
+    std::byte* payload_cursor{nullptr};
+    const auto header = serdes::deserialize<ipc_message_header_t>(data.data(), &payload_cursor);
 
     m_logger->debug("Start of frame: {}", std::string_view(reinterpret_cast<const char*>(header.start_of_frame.data()), header.start_of_frame.size()));
     m_logger->debug("Protocol version: {}", std::to_string(header.protocol_version));
@@ -51,29 +51,33 @@ void runtime_stub_t::handle_on_receive(
 
     switch (header.message_type) {
         case message_type_t::REGISTER_APPLICATION: {
-            const auto message = serdes::deserialize<ipc_register_message_t>(message_cursor);
+            const auto message = serdes::deserialize<ipc_register_message_t>(payload_cursor);
             m_logger->debug("Application registered: {} ({})", message.application_name, message.application_id);
+            break;
         }
 
         case message_type_t::UNREGISTER_APPLICATION: {
-            const auto message = serdes::deserialize<ipc_unregister_message_t>(message_cursor);
+            const auto message = serdes::deserialize<ipc_unregister_message_t>(payload_cursor);
             m_logger->debug("Application unregistered: {} ({})", message.application_name, message.application_id);
+            break;
         }
 
         case message_type_t::OFFER_SERVICE: {
-            const auto message = serdes::deserialize<ipc_offer_services_message_t>(message_cursor);
+            const auto message = serdes::deserialize<ipc_offer_services_message_t>(payload_cursor);
             m_logger->debug("Application {} offers the following services:", sender);
             for (const auto service: message) {
                 m_logger->debug("Service {}, instance {}", service.service_id, service.instance_id);
             }
+            break;
         }
 
         case message_type_t::REQUEST_SERVICE: {
-            const auto message = serdes::deserialize<ipc_request_services_message_t>(message_cursor);
+            const auto message = serdes::deserialize<ipc_request_services_message_t>(payload_cursor);
             m_logger->debug("Application {} requires the following services:", sender);
             for (const auto service: message) {
                 m_logger->debug("Service {}, instance {}", service.service_id, service.instance_id);
             }
+            break;
         }
     }
 }

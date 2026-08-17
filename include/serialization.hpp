@@ -638,43 +638,28 @@ size_t serialize(std::byte* out, Args&&... args) {
 }
 
 template<Deserializable... Args>
-auto deserialize(const std::byte*& in) {
+auto deserialize(const std::byte* in, std::byte** out_cursor = nullptr) {
     /*
         Force correct sequential evaluation of deserialization statements
         because they share and modify state (in)
     */
+    std::byte* cursor = const_cast<std::byte*>(in);
     std::tuple<Args...> ret;
     std::apply(
         [&](auto&... slots) {
-            (void(slots = _deserialize<std::remove_cvref_t<decltype(slots)>>(in)), ...);
+            (void(slots = _deserialize<std::remove_cvref_t<decltype(slots)>>(cursor)), ...);
         },
         ret
     );
+
+    if (out_cursor) *out_cursor = cursor;
+
     if constexpr (sizeof...(Args) == 1) {
         return std::get<0>(ret);
     }
     else return ret;
 }
 
-template<Deserializable... Args>
-auto deserialize(const std::byte* in) {
-    /*
-        Force correct sequential evaluation of deserialization statements
-        because they share and modify state (in)
-    */
-    std::byte* start{const_cast<std::byte*>(in)};
-    std::tuple<Args...> ret;
-    std::apply(
-        [&](auto&... slots) {
-            (void(slots = _deserialize<std::remove_cvref_t<decltype(slots)>>(start)), ...);
-        },
-        ret
-    );
-    if constexpr (sizeof...(Args) == 1) {
-        return std::get<0>(ret);
-    }
-    else return ret;
-}
 
 template<Serializable... Args>
 size_t serialize_dry_run(Args&&... args) {
