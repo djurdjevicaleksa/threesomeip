@@ -10,7 +10,7 @@
 /*=============*\
  * APPLICATION *
 \*=============*/
-#include <ipc_format.hpp>
+#include <comm_ipc.hpp>
 #include <udsocket.hpp>
 
 /*===========*\

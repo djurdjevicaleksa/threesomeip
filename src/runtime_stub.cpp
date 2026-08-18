@@ -11,7 +11,7 @@
  * APPLICATION *
 \*=============*/
 #include <runtime_stub.hpp>
-#include <ipc_format.hpp>
+#include <comm_ipc.hpp>
 #include <serialization.hpp>
 
 /*===========*\

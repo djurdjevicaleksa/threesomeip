@@ -14,7 +14,7 @@
  * APPLICATION *
 \*=============*/
 #include <serialization.hpp>
-#include <ipc_format.hpp>
+#include <comm_ipc.hpp>
 
 /*============*\
  * GOOGLETEST *

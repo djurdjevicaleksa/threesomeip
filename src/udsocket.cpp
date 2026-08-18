@@ -23,7 +23,7 @@
  * APPLICATION *
 \*=============*/
 #include <udsocket.hpp>
-#include <ipc_format.hpp>
+#include <comm_ipc.hpp>
 
 /*===========*\
  * 3RD PARTY *

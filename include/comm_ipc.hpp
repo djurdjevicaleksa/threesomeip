@@ -1,5 +1,5 @@
-#ifndef _IPC_FORMAT_HPP
-#define _IPC_FORMAT_HPP
+#ifndef _COMM_IPC_HPP
+#define _COMM_IPC_HPP
 
 /*=====*\
  * C++ *
@@ -52,4 +52,4 @@ using ipc_offer_services_message_t = std::span<const threesomeip::config::servic
 using ipc_request_services_message_t = std::span<const threesomeip::config::service_configuration_t>;
 
 } // namespace threesomeip::ipc
-#endif // _IPC_FORMAT_HPP
+#endif // _COMM_IPC_HPP
