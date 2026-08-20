@@ -8,7 +8,7 @@
     [PRS_SOMEIP_00004] (De)serialization parameters - generated per-interface; global for now.
 */
 
-namespace threesomeip::ipc::serdes {
+namespace threesomeip::someip::config {
 
 /*
     Defines the alignment requirement for the data element immediately
@@ -17,14 +17,14 @@ namespace threesomeip::ipc::serdes {
 
     Allowed range or values: [1], 2, 4, 8, 16, 32
 */
-constexpr size_t SERDES_ALIGNMENT = 1;
+constexpr size_t ALIGNMENT = 1;
 
 /*
     Defines the byte order of the payload message.
 
     Allowed range or values: [big], little, *OPAQUE*
 */
-constexpr std::endian SERDES_BYTE_ORDER = std::endian::big;
+constexpr std::endian WIRE_BYTE_ORDER = std::endian::big;
 
 /*
     This parameter shall be used to determine the size of the length field
@@ -34,7 +34,7 @@ constexpr std::endian SERDES_BYTE_ORDER = std::endian::big;
 
     Allowed range or values: [true], false
 */
-constexpr bool SERDES_IS_DYNAMIC_LENGTH_FIELD_SIZE = true;
+constexpr bool IS_DYNAMIC_LENGTH_FIELD_SIZE = false;
 
 /*
     This parameter shall be used to determine the size of the length field based on
@@ -46,7 +46,8 @@ constexpr bool SERDES_IS_DYNAMIC_LENGTH_FIELD_SIZE = true;
         - 0, 1, 2, [4] for fixed length arrays where 0 means no length field present
         - 1, 2, [4] for dynamic length fields where length field is mandatory
 */
-constexpr size_t SERDES_SIZE_OF_ARRAY_LENGTH_FIELD = 4;
+constexpr size_t SIZE_OF_DYNAMIC_ARRAY_LENGTH_FIELD = 4;
+constexpr size_t SIZE_OF_FIXED_ARRAY_LENGTH_FIELD = 4;
 
 /*
     Defines the size of the length field (in bytes) that swill be put in front of
@@ -56,7 +57,8 @@ constexpr size_t SERDES_SIZE_OF_ARRAY_LENGTH_FIELD = 4;
         - 0, 1, 2, [4] for fixed length strings where 0 means no length fields present
         - 1, 2, [4] for dynamic length strings where length field is mandatory
 */
-constexpr size_t SERDES_SIZE_OF_STRING_LENGTH_FIELD = 4;
+constexpr size_t SIZE_OF_DYNAMIC_STRING_LENGTH_FIELD = 4;
+constexpr size_t SIZE_OF_FIXED_STRING_LENGTH_FIELD = 4;
 
 /*
     Defines the size of the length field (in bytes) that will be put in front of
@@ -64,7 +66,7 @@ constexpr size_t SERDES_SIZE_OF_STRING_LENGTH_FIELD = 4;
 
     Allowed range or values: [0], 1, 2, 4
 */
-constexpr size_t SERDES_SIZE_OF_STRUCT_LENGTH_FIELD = 0;
+constexpr size_t SIZE_OF_STRUCT_LENGTH_FIELD = 0;
 
 /*
     Defines the size of the length field (in bytes) that will be put in front of
@@ -72,7 +74,7 @@ constexpr size_t SERDES_SIZE_OF_STRUCT_LENGTH_FIELD = 0;
 
     Allowed range or values: 0, 1, 2, [4]
 */
-constexpr size_t SERDES_SIZE_OF_UNION_LENGTH_FIELD = 4;
+constexpr size_t SIZE_OF_UNION_LENGTH_FIELD = 4;
 
 /*
     Defines the size of the payload selector field (in bytes) that will be put in
@@ -80,21 +82,21 @@ constexpr size_t SERDES_SIZE_OF_UNION_LENGTH_FIELD = 4;
 
     Allowed range of values: 1, 2, [4]
 */
-constexpr size_t SERDES_SIZE_OF_UNION_TYPE_SELECTOR_FIELD = 4;
+constexpr size_t SIZE_OF_UNION_TYPE_SELECTOR_FIELD = 4;
 
 /*
     Defines the types of unicode encodings supported for a string in the SOME/IP message.
 
     Allowed range or values: [utf-8], utf-16be, utf-16le
 */
-enum class serdes_string_encoding: size_t {
+enum class string_encoding: size_t {
     utf8 = 0,
     utf16be,
     utf16le
 };
 
-constexpr serdes_string_encoding SERDES_STRING_ENCODING = serdes_string_encoding::utf8;
+constexpr string_encoding STRING_ENCODING = string_encoding::utf8;
 
-} // namespace threesomeip::ipc::serdes
+} // namespace threesomeip::someip::config
 
 #endif // _SERDES_CONFIGURATION_HPP

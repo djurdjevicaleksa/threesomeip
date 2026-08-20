@@ -15,90 +15,29 @@
 #include <bit>
 #include <array>
 
-#include <serdes_configuration.hpp>
+/*========*\
+ * SERDES *
+\*========*/
+#include <serdes/concepts.hpp>
+#include <serdes/integers.hpp>
+#include <serdes/floats.hpp>
 
 
-namespace threesomeip::ipc::serdes {
 
-/*
-    Concepts
-*/
+#include <serdes/serdes_configuration.hpp>
+#include <serdes/someip_types.hpp>
+#include <serdes/someip_type_traits.hpp>
 
-template<typename T>
-concept UnsignedInteger =
-       std::is_same_v<std::remove_cvref_t<T>, uint8_t>
-    || std::is_same_v<std::remove_cvref_t<T>, uint16_t>
-    || std::is_same_v<std::remove_cvref_t<T>, uint32_t>
-    || std::is_same_v<std::remove_cvref_t<T>, uint64_t>;
 
-template<typename T>
-concept SignedInteger =
-       std::is_same_v<std::remove_cvref_t<T>, int8_t>
-    || std::is_same_v<std::remove_cvref_t<T>, int16_t>
-    || std::is_same_v<std::remove_cvref_t<T>, int32_t>
-    || std::is_same_v<std::remove_cvref_t<T>, int64_t>;
+namespace threesomeip::someip::serdes {
+using namespace threesomeip::someip;
 
-template<typename T>
-concept Integer = UnsignedInteger<T> || SignedInteger<T>;
 
-template<typename T>
-concept FloatingPoint =
-       std::is_same_v<std::remove_cvref_t<T>, float>
-    || std::is_same_v<std::remove_cvref_t<T>, double>;
-
-template<typename T>
-concept Enum =
-       std::is_enum_v<std::remove_cvref_t<T>>
-    && UnsignedInteger<std::underlying_type_t<std::remove_cvref_t<T>>>;
-
-template<typename T>
-concept UTF8String =
-       std::convertible_to<std::remove_cvref_t<T>, std::string_view>
-    && requires(T str) {
-        { str.data() };
-        { str.size() } -> std::convertible_to<size_t>;
-    };
-
-template<typename T>
-concept CStyleArray =
-       std::is_array_v<std::remove_cvref_t<T>>
-    && !std::is_same_v<std::remove_extent_t<std::remove_cvref_t<T>>, char> // explicitly ban char[]
-    && !UTF8String<T>;
-
-template<typename T>
-concept CppStyleArray = (
-    std::ranges::contiguous_range<T>
-    && requires(T t) {
-        t.data();
-        t.size();
-    }
-    && !UTF8String<T>
-);
-
-template<typename T>
-concept Array =
-       CStyleArray<T>
-    || CppStyleArray<T>;
-
-template<typename T>
-concept Aggregate =
-       std::is_aggregate_v<std::remove_cvref_t<T>>
-    && std::is_class_v<std::remove_cvref_t<T>>
-    && !Array<T>; /* must explicitly differentiate */
 
 /*
     Utilities
 */
 
-template<typename T>
-struct always_false : std::false_type {};
-
-template<Array T>
-using array_value_t = std::conditional_t<
-    CStyleArray<T>,
-    std::remove_extent_t<std::remove_cvref_t<T>>,
-    std::ranges::range_value_t<T>
->;
 
 template<typename T>
 concept LeafConcept = Integer<T> || FloatingPoint<T> || Enum<T> || UTF8String<T>;
@@ -250,6 +189,9 @@ constexpr bool is_serializable_v() {
 template<typename T>
 concept StructuralConcept = Array<T> || Aggregate<T>;
 
+template<typename T>
+concept PaddedConcept = UTF8String<T> || Array<T>;
+
 
 template<typename T>
 concept Serializable =
@@ -264,298 +206,33 @@ concept Deserializable =
     || (Aggregate<T> && is_serializable_v<T>());
 
 
-template<std::endian TargetEndianness, Integer T>
-T convert_endianness(T num) {
-    if constexpr (std::endian::native != TargetEndianness) return std::byteswap(num);
-    else return num;
-}
-
-template<std::endian TargetEndianness, FloatingPoint T>
-T convert_endianness(T num) {
-    if constexpr (std::endian::native != TargetEndianness) {
-        if constexpr (sizeof(T) == sizeof(uint32_t)) {
-            uint32_t tmp{0};
-            std::memcpy(&tmp, &num, sizeof(uint32_t));
-            tmp = std::byteswap(tmp);
-            std::memcpy(&num, &tmp, sizeof(uint32_t));
-            return num;
-        }
-        else if constexpr (sizeof(T) == sizeof(uint64_t)) {
-            uint64_t tmp{0};
-            std::memcpy(&tmp, &num, sizeof(uint64_t));
-            tmp = std::byteswap(tmp);
-            std::memcpy(&num, &tmp, sizeof(uint64_t));
-            return num;
-        }
-        else static_assert(always_false<T>::value, "Invalid type sizes for target platform.");
-    }
-    else {
-        return num;
-    }
-}
-
-template<size_t FieldLengthBytes>
-using length_field_t =
-    std::conditional<FieldLengthBytes == 1, uint8_t,
-    std::conditional<FieldLengthBytes == 2, uint16_t,
-    std::conditional<FieldLengthBytes == 4, uint32_t,
-void>>>;
 
 
-/*======================*\
- * FORWARD DECLARATIONS *
-\*======================*/
 
-
-template<std::endian WireEndianness, Integer T>
-void _serialize(std::byte*& out, const T& num);
-
-template<std::endian WireEndianness, Integer T>
-T _deserialize(std::byte*& in);
-
-
-template<std::endian WireEndianness, FloatingPoint T>
-void _serialize(std::byte*& out, const T& num);
-
-template<std::endian WireEndianness, FloatingPoint T>
-T _deserialize(std::byte*& in);
-
-
-template<std::endian WireEndianness, Enum T>
-void _serialize(std::byte*& out, const T& enu);
-
-template<std::endian WireEndianness, Enum T>
-T _deserialize(std::byte*& in);
-
-
-template<UTF8String T>
-void _serialize(std::byte*& out, const T& str);
-
-template<UTF8String T>
-T _deserialize(std::byte*& in);
-
-
-template<Array T>
-void _serialize(std::byte*& out, const T& arr);
-
-template<CppStyleArray T>
-T _deserialize(std::byte*& in);
-
-template<Aggregate T>
-void _serialize(std::byte*& out, const T& agg);
-
-template<Aggregate T>
-T _deserialize(std::byte*& in);
 
 
 /*======================*\
  *     DEFINITIONS      *
 \*======================*/
 
-/*
-    Integer
-*/
-template<std::endian WireEndianness, Integer T>
-void _serialize(std::byte*& out, const T& num) {
-    T _num{convert_endianness<WireEndianness>(num)};
-    std::memcpy(out, &_num, sizeof(T));
-    out += sizeof(T);
-}
-
-template<std::endian WireEndianness, Integer T>
-T _deserialize(std::byte*& in) {
-    T num{0};
-    std::memcpy(&num, in, sizeof(T));
-    in += sizeof(T);
-    return convert_endianness<WireEndianness>(num);
-}
-
-template<Integer T>
-constexpr size_t _serialize_dry_run() {
-    return sizeof(T);
-}
-
-template<Integer T>
-constexpr size_t _serialize_dry_run([[maybe_unused]] const T& num) {
-    return sizeof(T);
-}
 
 
-/*
-    Floating point
-*/
-template<std::endian WireEndianness, FloatingPoint T>
-void _serialize(std::byte*& out, const T& num) {
-    const T _num{convert_endianness<WireEndianness>(num)};
-    std::memcpy(out, &_num, sizeof(T));
-    out += sizeof(T);
-}
 
-template<std::endian WireEndianness, FloatingPoint T>
-T _deserialize(std::byte*& in) {
-    T num{0};
-    std::memcpy(&num, in, sizeof(T));
-    in += sizeof(T);
-    return convert_endianness<WireEndianness>(num);
-}
-
-template<FloatingPoint T>
-constexpr size_t _serialize_dry_run() {
-    return sizeof(T);
-}
-
-template<FloatingPoint T>
-constexpr size_t _serialize_dry_run([[maybe_unused]] const T& num) {
-    return sizeof(T);
-}
-
-/*
-    Enum
-*/
-template<std::endian WireEndianness, Enum T>
-void _serialize(std::byte*& out, const T& enu) {
-    using actual_type = std::underlying_type_t<std::remove_cvref_t<T>>;
-    const actual_type _enu{convert_endianness<WireEndianness>(static_cast<actual_type>(enu))};
-    std::memcpy(out, &_enu, sizeof(actual_type));
-    out += sizeof(actual_type);
-}
-
-template<std::endian WireEndianness, Enum T>
-T _deserialize(std::byte*& in) {
-    using actual_type = std::underlying_type_t<std::remove_cvref_t<T>>;
-    actual_type enu{0};
-    std::memcpy(&enu, in, sizeof(actual_type));
-    in += sizeof(actual_type);
-    return static_cast<T>(convert_endianness<WireEndianness>(enu));
-}
-
-template<Enum T>
-constexpr size_t _serialize_dry_run() {
-    return sizeof(std::underlying_type_t<std::remove_cvref_t<T>>);
-}
-
-template<Enum T>
-constexpr size_t _serialize_dry_run([[maybe_unused]] const T& enu) {
-    return sizeof(std::underlying_type_t<std::remove_cvref_t<T>>);
-}
 
 /*
     String
 */
-template<UTF8String T>
-void _serialize(std::byte*& out, const T& str) {
-    using LEN_TYPE = length_field_t<SERDES_SIZE_OF_STRING_LENGTH_FIELD>;
-    constexpr std::array<uint8_t, 3> bom{0xEF, 0xBB, 0xBF};
-
-    const LEN_TYPE length{static_cast<LEN_TYPE>(bom.size() + str.size() /* '\n' */ + size_t{1})};
-    std::memcpy(out, &length, sizeof(LEN_TYPE));
-    out += sizeof(LEN_TYPE);
-
-    std::memcpy(out, bom.data(), size_t{3});
-    out += size_t{3};
-
-    std::memcpy(out, str.data(), str.size());
-    out += str.size();
-
-    *out = '\n';
-    out += size_t{1};
-}
-
-template<UTF8String T>
-T _deserialize(std::byte*& in) {
-    // what to do when encodings dont match
-}
 
 
 
 
-template<UTF8String T>
-void _serialize(std::byte*& out, const T& str) {
-    uint16_t length = static_cast<uint16_t>(str.size());
-    std::memcpy(out, &length, sizeof(uint16_t));
-    out += sizeof(uint16_t);
 
-    std::memcpy(out, str.data(), str.size());
-    out += str.size();
-}
 
-/* will potentially need to return std::string as owning object */
-template<UTF8String T>
-T _deserialize(std::byte*& in) {
-    uint16_t length{0};
-    std::memcpy(&length, in, sizeof(uint16_t));
-    in += sizeof(uint16_t);
-
-    T str{reinterpret_cast<const char*>(in), length};
-    in += length;
-    return str;
-}
-
-template<UTF8String T>
-size_t _serialize_dry_run(const T& str) {
-    return sizeof(uint16_t) + str.size();
-}
 
 /*
     Array
 */
-template<Array T>
-auto as_span(const T& arr) {
-    if constexpr(CStyleArray<T>) {
-        return std::span{arr};
-    }
-    else {
-        return std::span{arr.data(), arr.size()};
-    }
-}
 
-template<Array T>
-void _serialize(std::byte*& out, const T& arr) {
-    auto elements = as_span(arr);
-
-    uint16_t length = static_cast<uint16_t>(elements.size());
-    std::memcpy(out, &length, sizeof(uint16_t));
-    out += sizeof(uint16_t);
-
-    for (const auto element: elements) {
-        _serialize(out, element);
-    }
-}
-
-template<CppStyleArray T>
-T _deserialize(std::byte*& in) {
-    uint16_t length{0};
-    std::memcpy(&length, in, sizeof(uint16_t));
-    in += sizeof(uint16_t);
-
-    if constexpr (std::same_as<std::remove_cvref_t<T>, std::span<const typename std::remove_cvref_t<T>::value_type>>) {
-        auto ptr = reinterpret_cast<const typename T::value_type*>(in);
-        in += length * sizeof(typename std::remove_cvref_t<T>::value_type);
-        return {ptr, length};
-    }
-    else if constexpr (std::same_as<std::remove_cvref_t<T>, std::vector<typename std::remove_cvref_t<T>::value_type>>) {
-        T arr{};
-        arr.reserve(length);
-        for (uint16_t i{0}; i < length; ++i) {
-            arr.emplace_back(_deserialize<typename std::remove_cvref_t<T>::value_type>(in));
-        }
-        return arr;
-    }
-    else { // std::array
-        assert(length == std::tuple_size_v<std::remove_cvref_t<T>> && "Mismatch between a written and read array detected. What did you do?");
-        T arr{};
-        for (auto& element: arr) {
-            element = _deserialize<typename std::remove_cvref_t<T>::value_type>(in);
-        }
-        return arr;
-    }
-}
-
-template<Array T>
-size_t _serialize_dry_run(const T& arr) {
-    const auto arr_as_span = as_span(arr);
-    return sizeof(uint16_t) + arr_as_span.size() * sizeof(typename std::remove_cvref_t<decltype(arr_as_span)>::value_type);
-}
 
 /*
     Aggregate
@@ -739,6 +416,6 @@ size_t serialize_dry_run(Args&&... args) {
     return (_serialize_dry_run(std::forward<Args>(args)) + ... + size_t{0});
 }
 
-} // namespace threesomeip::ipc::serdes
+} // namespace threesomeip::someip::serdes
 
 #endif // _SERIALIZATION_HPP

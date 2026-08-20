@@ -39,7 +39,7 @@ protected:
     void on_message(const threesomeip::someip::someip_message_header_t& someip_header, std::span<const std::byte>) {
         if (someip_header.service_id != SERVICE_ID) return; /* message not intended for this service */
 
-        
+        if 
 
 
         switch (someip_header.message_type) {
