@@ -60,6 +60,14 @@ concept Aggregate =
     && !UTF8String<T>;
 
 
+
+template<typename T>
+concept LeafConcept = Integer<T> || FloatingPoint<T> || Enum<T> || UTF8String<T>;
+
+template<typename T>
+concept StructuralConcept = Array<T> || Aggregate<T>;
+
+
 } // namespace threesomeip::someip::serdes
 
 

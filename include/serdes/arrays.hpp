@@ -20,55 +20,36 @@
 #include <serdes/someip_types.hpp>
 #include <serdes/someip_type_traits.hpp>
 #include <serdes/integers.hpp>
+#include <serdes/serdes_declarations.hpp>
+
 
 namespace threesomeip::someip::serdes {
 using namespace threesomeip::someip;
 
 
 template<Array T>
-using array_value_t = std::ranges::range_value_t<T>;
-
-using flarray_length_field_t =
-    std::conditional_t<config::SIZE_OF_FIXED_ARRAY_LENGTH_FIELD == 1, uint8_t,
-        std::conditional_t<config::SIZE_OF_FIXED_ARRAY_LENGTH_FIELD == 2, uint16_t,
-            std::conditional_t<config::SIZE_OF_FIXED_ARRAY_LENGTH_FIELD == 4, uint32_t,
-               void
-            >
-        >
-    >;
-
-using dlarray_length_field_t =
-    std::conditional_t<config::SIZE_OF_DYNAMIC_ARRAY_LENGTH_FIELD == 1, uint8_t,
-        std::conditional_t<config::SIZE_OF_DYNAMIC_ARRAY_LENGTH_FIELD == 2, uint16_t,
-            std::conditional_t<config::SIZE_OF_DYNAMIC_ARRAY_LENGTH_FIELD == 4, uint32_t,
-               /* prohibited from being 0 by configuration validator*/ void
-            >
-        >
-    >;
-
-
-/* 
-    HERE THE sizeof(array_value_t<T>) IS NOT APPROPRIATE BECAUSE SOME TYPES MAY NOT MAP 1:1 SERIALIZED AND IN-MEMORY;REWORK
-*/
-
-template<Array T>
 void _serialize(std::byte*& out, const T& arr) {
+    size_t total_length{0};
+    for (const auto& element: arr) {
+        total_length += _serialize_dry_run(element);
+    }
+
     if constexpr (traits::is_dynamic_array_v<T>) {
         /* length must exist, represents the amount of bytes in the array */
-        dlarray_length_field_t length_bytes{
-            convert_endianness<config::WIRE_BYTE_ORDER>(static_cast<dlarray_length_field_t>(arr.size() * sizeof(array_value_t<T>)))
+        traits::dlarray_length_field_t<T> length_bytes{
+            convert_endianness<config::WIRE_BYTE_ORDER>(static_cast<traits::dlarray_length_field_t<T>>(total_length))
         };
-        std::memcpy(out, &length_bytes, sizeof(dlarray_length_field_t));
-        out += sizeof(dlarray_length_field_t);
+        std::memcpy(out, &length_bytes, sizeof(traits::dlarray_length_field_t<T>));
+        out += sizeof(traits::dlarray_length_field_t<T>);
     }
     else if constexpr (traits::is_fixed_array_v<T>) {
         /* length is optional */
-        if constexpr (! std::is_same_v<flarray_length_field_t, void>) {
-            constexpr flarray_length_field_t length_bytes{convert_endianness<config::WIRE_BYTE_ORDER>(
-                static_cast<flarray_length_field_t>(std::tuple_size_v<T> * sizeof(array_value_t<T>))
-            )};
-            std::memcpy(out, &length_bytes, sizeof(flarray_length_field_t));
-            out += sizeof(flarray_length_field_t);
+        if constexpr (! std::is_same_v<traits::flarray_length_field_t<T>, void>) {
+            traits::flarray_length_field_t<T> length_bytes{
+                convert_endianness<config::WIRE_BYTE_ORDER>(static_cast<traits::flarray_length_field_t<T>>(total_length))
+            };
+            std::memcpy(out, &length_bytes, sizeof(traits::flarray_length_field_t<T>));
+            out += sizeof(traits::flarray_length_field_t<T>);
         }
     }
 
@@ -81,36 +62,57 @@ template<Array T>
 T _deserialize(std::byte*& in) {
 
     if constexpr (traits::is_dynamic_array_v<T>) {
-        dlarray_length_field_t length{0};
-        std::memcpy(&length, in, sizeof(dlarray_length_field_t));
-        in += sizeof(dlarray_length_field_t);
-        size_t length_elements{convert_endianness<config::WIRE_BYTE_ORDER>(length) / sizeof(array_value_t<T>)};
+        traits::dlarray_length_field_t<T> length{0};
+        std::memcpy(&length, in, sizeof(traits::dlarray_length_field_t<T>));
+        in += sizeof(traits::dlarray_length_field_t<T>);
 
         T ret{};
 
-        for (size_t i{0}; i < length_elements; ++i) {
-            ret.push_back(_deserialize<array_value_t<T>>(in));
+        if constexpr (requires { _serialize_dry_run<traits::array_value_t<T>>(); } ) {
+            size_t length_elements{convert_endianness<config::WIRE_BYTE_ORDER>(length) / _serialize_dry_run<traits::array_value_t<T>>()};
+            for (size_t i{0}; i < length_elements; ++i) {
+                ret.push_back(_deserialize<traits::array_value_t<T>>(in));
+            }
+        }
+        else {
+            size_t length_remaining{convert_endianness<config::WIRE_BYTE_ORDER>(length)};
+            while (length_remaining > 0) {
+                auto start = in;
+                ret.push_back(_deserialize<traits::array_value_t<T>>(in));
+                length_remaining -= static_cast<size_t>(in - start);
+            }
         }
 
         return ret;
     }
     else if constexpr (traits::is_fixed_array_v<T>) {
-        size_t length_elements{0};
-
-        if constexpr (! std::is_same_v<flarray_length_field_t, void>) {
-            flarray_length_field_t wire_length{0};
-            std::memcpy(&wire_length, in, sizeof(flarray_length_field_t));
-            in += sizeof(flarray_length_field_t);
-            length_elements = static_cast<size_t>(convert_endianness<config::WIRE_BYTE_ORDER>(wire_length) / sizeof(array_value_t<T>));
-        }
-        else {
-            length_elements = std::tuple_size_v<T>;
-        }
-
         T ret{};
 
-        for (size_t i{0}; i < std::min(length_elements, std::tuple_size_v<T>); ++i) {
-            ret[i] = _deserialize<array_value_t<T>>(in);
+        if constexpr (! std::is_same_v<traits::flarray_length_field_t<T>, void>) {
+            traits::flarray_length_field_t<T> wire_length{0};
+            std::memcpy(&wire_length, in, sizeof(traits::flarray_length_field_t<T>));
+            in += sizeof(traits::flarray_length_field_t<T>);
+
+            if constexpr (requires { _serialize_dry_run<traits::array_value_t<T>>(); }) {
+                size_t length_elements{static_cast<size_t>(convert_endianness<config::WIRE_BYTE_ORDER>(wire_length) / _serialize_dry_run<traits::array_value_t<T>>())};
+                for (size_t i{0}; i < std::min(std::tuple_size_v<T>, length_elements); ++i) {
+                    ret[i] = _deserialize<traits::array_value_t<T>>(in);
+                }
+            }
+            else {
+                size_t length_remaining{static_cast<size_t>(convert_endianness<config::WIRE_BYTE_ORDER>(wire_length))};
+                size_t ret_index{0};
+                while (length_remaining > 0 && ret_index < std::tuple_size_v<T>) {
+                    auto start = in;
+                    ret[ret_index++] = _deserialize<traits::array_value_t<T>>(in);
+                    length_remaining -= static_cast<size_t>(in - start);
+                }
+            }
+        }
+        else {
+            for (size_t i{0}; i < std::tuple_size_v<T>; ++i) {
+                ret[i] = _deserialize<traits::array_value_t<T>>(in);
+            }
         }
 
         return ret;
@@ -122,15 +124,15 @@ T _deserialize(std::byte*& in) {
 }
 
 template<Array T>
-requires traits::is_fixed_array_v<T> && requires { _serialize_dry_run<array_value_t<T>>(); }
+requires traits::is_fixed_array_v<T> && requires { _serialize_dry_run<traits::array_value_t<T>>(); }
 consteval size_t _serialize_dry_run() {
-    constexpr size_t element_size{_serialize_dry_run<array_value_t<T>>()};
+    constexpr size_t element_size{_serialize_dry_run<traits::array_value_t<T>>()};
 
-    if constexpr (std::is_same_v<flarray_length_field_t, void>) {
+    if constexpr (std::is_same_v<traits::flarray_length_field_t<T>, void>) {
         return std::tuple_size_v<T> * element_size;
     }
     else {
-        return sizeof(flarray_length_field_t) + std::tuple_size_v<T> * element_size;
+        return sizeof(traits::flarray_length_field_t<T>) + std::tuple_size_v<T> * element_size;
     }
 }
 
@@ -143,11 +145,11 @@ size_t _serialize_dry_run(const T& arr) {
         elements_size += _serialize_dry_run(element);
     }
 
-    if constexpr (std::is_same_v<flarray_length_field_t, void>) {
+    if constexpr (std::is_same_v<traits::flarray_length_field_t<T>, void>) {
         return elements_size;
     }
     else {
-        return sizeof(flarray_length_field_t) + elements_size;
+        return sizeof(traits::flarray_length_field_t<T>) + elements_size;
     }
 }
 
@@ -160,11 +162,11 @@ size_t _serialize_dry_run(const T& arr) {
         elements_size += _serialize_dry_run(element);
     }
 
-    if constexpr (std::is_same_v<dlarray_length_field_t, void>) {
+    if constexpr (std::is_same_v<traits::dlarray_length_field_t<T>, void>) {
         return elements_size;
     }
     else {
-        return sizeof(dlarray_length_field_t) + elements_size;
+        return sizeof(traits::dlarray_length_field_t<T>) + elements_size;
     }
 }
 

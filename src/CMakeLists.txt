@@ -49,5 +49,5 @@ macro(build_application application_name)
     )
 endmacro()
 
-build_application(runtime)
-build_application(client)
+# build_application(runtime)
+# build_application(client)

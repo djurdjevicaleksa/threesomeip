@@ -25,23 +25,6 @@
 namespace threesomeip::someip::serdes {
 using namespace threesomeip::someip;
 
-using flstring_length_field_t =
-    std::conditional_t<config::SIZE_OF_FIXED_STRING_LENGTH_FIELD == 1, uint8_t,
-        std::conditional_t<config::SIZE_OF_FIXED_STRING_LENGTH_FIELD == 2, uint16_t,
-            std::conditional_t<config::SIZE_OF_FIXED_STRING_LENGTH_FIELD == 4, uint32_t,
-               void
-            >
-        >
-    >;
-
-using dlstring_length_field_t =
-    std::conditional_t<config::SIZE_OF_DYNAMIC_STRING_LENGTH_FIELD == 1, uint8_t,
-        std::conditional_t<config::SIZE_OF_DYNAMIC_STRING_LENGTH_FIELD == 2, uint16_t,
-            std::conditional_t<config::SIZE_OF_DYNAMIC_STRING_LENGTH_FIELD == 4, uint32_t,
-               /* prohibited from being 0 by configuration validator*/ void
-            >
-        >
-    >;
 
 inline constexpr std::array<std::byte, 3> bom_utf8{std::byte{0xEF}, std::byte{0xBB}, std::byte{0xBF}};
 
@@ -49,20 +32,20 @@ template<UTF8String T>
 void _serialize(std::byte*& out, const T& str) {
     if constexpr (traits::is_dynamic_string_v<T>) {
         /* length must exist, contain BOM, data, and null terminator and must be big endian */
-        dlstring_length_field_t length{convert_endianness<config::WIRE_BYTE_ORDER>(
-            static_cast<dlstring_length_field_t>(bom_utf8.size() + str.size() /* '\0' */ + size_t{1})
+        traits::dlstring_length_field_t<T> length{convert_endianness<config::WIRE_BYTE_ORDER>(
+            static_cast<traits::dlstring_length_field_t<T>>(bom_utf8.size() + str.size() /* '\0' */ + size_t{1})
         )};
-        std::memcpy(out, &length, sizeof(dlstring_length_field_t));
-        out += sizeof(dlstring_length_field_t);
+        std::memcpy(out, &length, sizeof(traits::dlstring_length_field_t<T>));
+        out += sizeof(traits::dlstring_length_field_t<T>);
     }
     else if constexpr (traits::is_fixed_string_v<T>) {
         /* length optional, contains BOM, data, and null terminator and must be big endian */
-        if constexpr (! std::is_same_v<flstring_length_field_t, void>) {
-            constexpr flstring_length_field_t length{convert_endianness<config::WIRE_BYTE_ORDER>(
-                static_cast<flstring_length_field_t>(bom_utf8.size() + std::tuple_size_v<T> /* '\0' */ + size_t{1})
+        if constexpr (! std::is_same_v<traits::flstring_length_field_t<T>, void>) {
+            constexpr traits::flstring_length_field_t<T> length{convert_endianness<config::WIRE_BYTE_ORDER>(
+                static_cast<traits::flstring_length_field_t<T>>(bom_utf8.size() + std::tuple_size_v<T> /* '\0' */ + size_t{1})
             )};
-            std::memcpy(out, &length, sizeof(flstring_length_field_t));
-            out += sizeof(flstring_length_field_t);
+            std::memcpy(out, &length, sizeof(traits::flstring_length_field_t<T>));
+            out += sizeof(traits::flstring_length_field_t<T>);
         }
     }
     else {
@@ -75,7 +58,7 @@ void _serialize(std::byte*& out, const T& str) {
     std::memcpy(out, reinterpret_cast<const std::byte*>(str.data()), str.size());
     out += str.size();
 
-    *out = '\0';
+    *out = static_cast<std::byte>('\0');
     ++out;
 }
 
@@ -83,9 +66,9 @@ template<UTF8String T>
 T _deserialize(std::byte*& in) {
     if constexpr (traits::is_dynamic_string_v<T>) {
         /* get length; move cursor */
-        dlstring_length_field_t length{0};
-        std::memcpy(&length, in, sizeof(dlstring_length_field_t));
-        in += sizeof(dlstring_length_field_t);
+        traits::dlstring_length_field_t<T> length{0};
+        std::memcpy(&length, in, sizeof(traits::dlstring_length_field_t<T>));
+        in += sizeof(traits::dlstring_length_field_t<T>);
         length = convert_endianness<config::WIRE_BYTE_ORDER>(length);
 
         /* check bom */
@@ -108,10 +91,10 @@ T _deserialize(std::byte*& in) {
     else if constexpr (traits::is_fixed_string_v<T>) {
         size_t length{0};
 
-        if constexpr (! std::is_same_v<flstring_length_field_t, void>) {
-            flstring_length_field_t wire_length{0};
-            std::memcpy(&wire_length, in, sizeof(flstring_length_field_t));
-            in += sizeof(flstring_length_field_t);
+        if constexpr (! std::is_same_v<traits::flstring_length_field_t<T>, void>) {
+            traits::flstring_length_field_t<T> wire_length{0};
+            std::memcpy(&wire_length, in, sizeof(traits::flstring_length_field_t<T>));
+            in += sizeof(traits::flstring_length_field_t<T>);
             length = static_cast<size_t>(convert_endianness<config::WIRE_BYTE_ORDER>(wire_length));
         }
         else {
@@ -150,18 +133,18 @@ T _deserialize(std::byte*& in) {
 template<UTF8String T>
 requires traits::is_fixed_string_v<T>
 consteval size_t _serialize_dry_run() {
-    if constexpr (std::is_same_v<flstring_length_field_t, void>) {
+    if constexpr (std::is_same_v<traits::flstring_length_field_t<T>, void>) {
         return bom_utf8.size() + std::tuple_size_v<T> /* '\0' */ + size_t{1};
     }
     else {
-        return sizeof(flstring_length_field_t) + bom_utf8.size() + std::tuple_size_v<T> /* '\0' */ + size_t{1};
+        return sizeof(traits::flstring_length_field_t<T>) + bom_utf8.size() + std::tuple_size_v<T> /* '\0' */ + size_t{1};
     }
 }
 
 template<UTF8String T>
 requires traits::is_dynamic_string_v<T>
 size_t _serialize_dry_run(const T& str) {
-    return sizeof(dlstring_length_field_t) + bom_utf8.size() + str.size() /* '\0' */ + size_t{1};
+    return sizeof(traits::dlstring_length_field_t<T>) + bom_utf8.size() + str.size() /* '\0' */ + size_t{1};
 }
 
 } // namespace threesomeip::someip::serdes

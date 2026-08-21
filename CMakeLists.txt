@@ -18,7 +18,7 @@ add_subdirectory(${gtest})
 
 
 # Compile the implementation first
-add_subdirectory(src)
+# add_subdirectory(src)
 
 
 # Then the test binary
