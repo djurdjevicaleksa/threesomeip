@@ -52,7 +52,7 @@
 namespace threesomeip::ipc {
 
 
-ud_socket_t::ud_socket_t(const socket_handle_t& self, std::optional<ReceiveCallback> on_receive) noexcept:
+ud_socket_t::ud_socket_t(const types::socket_handle_t& self, std::optional<ReceiveCallback> on_receive) noexcept:
     m_ud_socket_fd(-1), m_wakeup_fd(-1), m_self(self), m_on_receive(std::move(on_receive.value_or(nullptr))) {
     this->init();
 }
@@ -163,7 +163,7 @@ ud_socket_t::~ud_socket_t() noexcept {
 }
 
 auto ud_socket_t::send(
-    const socket_handle_t& recipient,
+    const types::socket_handle_t& recipient,
     std::span<const std::byte> data,
     std::optional<DelayedResultCallback> on_delayed_result) noexcept
 -> send_result_t {
@@ -387,7 +387,7 @@ bool ud_socket_t::receive() {
     }
 
 
-    const auto sender_handle = socket_handle_t{sender_address.sun_path};
+    const auto sender_handle = types::socket_handle_t{sender_address.sun_path};
 
     m_logger->debug(
         std::format(

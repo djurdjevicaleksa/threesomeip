@@ -27,6 +27,7 @@ namespace fs = std::filesystem;
 namespace threesomeip::runtime {
 using namespace threesomeip;
 
+
 class runtime_proxy_t {
 public:
     runtime_proxy_t(
@@ -43,6 +44,7 @@ public:
     ipc::send_result_t unregisterApplication(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
     ipc::send_result_t offerServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
     ipc::send_result_t requestServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
+    ipc::send_result_t invoke(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
 
 private:
 
@@ -53,8 +55,8 @@ private:
     // ) noexcept;
 
     void handle_on_receive(
-        [[maybe_unused]] threesomeip::ipc::ud_socket_t& self,
-        [[maybe_unused]] const threesomeip::ipc::socket_handle_t& sender,
+        [[maybe_unused]] ipc::ud_socket_t& self,
+        [[maybe_unused]] const ipc::types::socket_handle_t& sender,
         [[maybe_unused]] const std::span<const std::byte> data
     ) noexcept {};
 
@@ -62,12 +64,12 @@ private:
     const std::string m_app_name;
     const uint16_t m_app_id;
 
-    threesomeip::ipc::socket_handle_t m_own_socket_handle;
-    threesomeip::ipc::socket_handle_t m_runtime_handle;
-    std::vector<threesomeip::config::service_configuration_t> m_offered_services;
-    std::vector<threesomeip::config::service_configuration_t> m_requested_services;
+    ipc::types::socket_handle_t m_own_socket_handle;
+    ipc::types::socket_handle_t m_runtime_handle;
+    std::vector<config::service_configuration_t> m_offered_services;
+    std::vector<config::service_configuration_t> m_requested_services;
 
-    threesomeip::ipc::ud_socket_t m_socket;
+    ipc::ud_socket_t m_socket;
 };
 
 } // namespace threesomeip::runtime

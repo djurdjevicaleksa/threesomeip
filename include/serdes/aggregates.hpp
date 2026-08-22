@@ -42,7 +42,7 @@ consteval size_t _aggregate_field_count() {
 
 
 template<typename T, typename Visitor>
-void _visit_fields(T& object, const Visitor& v) {
+constexpr void _visit_fields(T& object, const Visitor& v) {
     constexpr size_t field_count{_aggregate_field_count<T>()};
 
     if constexpr (field_count == 0) {
@@ -169,6 +169,26 @@ T _deserialize(std::byte*& in) {
         return agg;
     }
 
+}
+
+template<Aggregate T>
+consteval size_t _serialize_dry_run() {
+    constexpr T tmp{};
+    size_t fields_size{0};
+
+    _visit_fields(
+        const_cast<T&>(tmp),
+        [&] (auto& field) {
+            fields_size += _serialize_dry_run<std::remove_cvref_t<decltype(field)>>();
+        }
+    );
+
+    if constexpr (std::is_same_v<traits::aggregate_length_field_t<T>, void>) {
+        return fields_size;
+    }
+    else {
+        return sizeof(traits::aggregate_length_field_t<T>) + fields_size;
+    }
 }
 
 template<Aggregate T>

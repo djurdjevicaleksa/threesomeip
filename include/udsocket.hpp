@@ -42,11 +42,11 @@ enum class send_result_t {
 class ud_socket_t: public lifecycle_listener_t {
 public:
 
-    using DelayedResultCallback = std::function<void(const send_result_t result, const socket_handle_t& recipient, const std::span<const std::byte> data)>;
-    using ReceiveCallback = std::function<void(ud_socket_t& self, const socket_handle_t& sender, const std::span<const std::byte> data)>;
+    using DelayedResultCallback = std::function<void(const send_result_t result, const types::socket_handle_t& recipient, const std::span<const std::byte> data)>;
+    using ReceiveCallback = std::function<void(ud_socket_t& self, const types::socket_handle_t& sender, const std::span<const std::byte> data)>;
 
     struct pending_message_t {
-        socket_handle_t recipient;
+        types::socket_handle_t recipient;
         std::vector<std::byte> data;
         size_t bytes_already_written; // For future SOCK_STREAM support
         DelayedResultCallback on_delayed_result;
@@ -54,7 +54,7 @@ public:
 
 
     ud_socket_t(
-        const socket_handle_t& self,
+        const types::socket_handle_t& self,
         std::optional<ReceiveCallback> on_receive
     ) noexcept;
 
@@ -63,7 +63,7 @@ public:
     ~ud_socket_t() noexcept;
 
     send_result_t send(
-        const socket_handle_t& recipient,
+        const types::socket_handle_t& recipient,
         std::span<const std::byte> data,
         std::optional<DelayedResultCallback> on_delayed_result
     ) noexcept;
@@ -88,14 +88,14 @@ private:
     int m_wakeup_fd; // Used for reapplying the fdpoll_mask
     int m_shutdown_fd;
 
-    const std::optional<const socket_handle_t> m_self;
+    const std::optional<const types::socket_handle_t> m_self;
     const std::optional<ReceiveCallback> m_on_receive;
 
     std::thread t_worker;
     std::mutex m_mutex;
 
     std::queue<pending_message_t> m_pending_messages;
-    std::unordered_map<socket_handle_t, sockaddr_un> m_cache;
+    std::unordered_map<types::socket_handle_t, sockaddr_un> m_cache;
 
     std::shared_ptr<spdlog::logger> m_logger;
 };

@@ -11,7 +11,7 @@ target_link_libraries( threesomeip_test
     PRIVATE
         GTest::gtest
         GTest::gtest_main
-        # threesomeip_impl
+        threesomeip_impl
 )
 
 include(GoogleTest)

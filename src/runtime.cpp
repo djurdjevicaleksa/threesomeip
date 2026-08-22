@@ -13,9 +13,9 @@
 \*===========*/
 
 int main(int argc, char** argv) {
-    using namespace threesomeip::runtime;
+    using namespace threesomeip;
 
-    runtime_stub_t runtime{
+    runtime::runtime_stub_t runtime{
         "/home/lecq/Desktop/threesomeip/ipc_sockets",
         "runtime"
     };

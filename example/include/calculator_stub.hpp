@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <span>
 
-#include <comm_someip.hpp>
 #include <runtime_proxy.hpp>
 
 
@@ -36,16 +35,16 @@ public:
 
 protected:
 
-    void on_message(const threesomeip::someip::someip_message_header_t& someip_header, std::span<const std::byte>) {
+    void on_message(const threesomeip::someip::message_header_t& someip_header, std::span<const std::byte>) {
         if (someip_header.service_id != SERVICE_ID) return; /* message not intended for this service */
 
         if 
 
 
         switch (someip_header.message_type) {
-            case threesomeip::someip::someip_message_type::REQUEST: {
+            case threesomeip::someip::message_type_t::REQUEST: {
 
-                threesomeip::someip::someip_message_header_t{
+                threesomeip::someip::message_header_t{
                     .message_id = someip_header.message_id,
                     .length = 0,
                     .request_id = someip_header.request_id,
@@ -60,7 +59,7 @@ protected:
             }
         }
 
-        if (someip_header.message_type == threesomeip::someip::someip_message_type::REQUEST)
+        if (someip_header.message_type == threesomeip::someip::message_type_t::REQUEST)
 
             
         }

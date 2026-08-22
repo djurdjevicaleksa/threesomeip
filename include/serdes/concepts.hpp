@@ -70,7 +70,4 @@ concept StructuralConcept = Array<T> || Aggregate<T>;
 
 } // namespace threesomeip::someip::serdes
 
-
-
-
 #endif // _CONCEPTS_HPP

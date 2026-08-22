@@ -5,50 +5,59 @@
  * C++ *
 \*=====*/
 #include <string>
-#include <cstdint>
-#include <variant>
-#include <utility>
-#include <array>
 
-/*=====*\
- * C++ *
-\*=====*/
+/*===========*\
+ * FRAMEWORK *
+\*===========*/
 #include <configuration.hpp>
+#include <serdes/someip_types.hpp>
 
 
 namespace threesomeip::ipc {
-
-using socket_handle_t = std::string;
 
 
 constexpr uint16_t MAX_PAYLOAD_SIZE = 1024;
 
 
+namespace types {
+using namespace threesomeip;
+
+
+using socket_handle_t = std::string;
+
+
+/*
+    SERIALIZED TYPES
+*/
 enum class message_type_t: uint8_t {
     REGISTER_APPLICATION = 0,
     UNREGISTER_APPLICATION,
     OFFER_SERVICE,
     REQUEST_SERVICE,
+    INVOKE
 };
 
-struct ipc_message_header_t {
-    std::array<std::byte, 13> start_of_frame;
-    uint8_t protocol_version;
+struct message_header_t {
+    someip::types::flstring_utf8<13> start_of_frame;
+    someip::types::uint8 protocol_version;
     message_type_t message_type;
-    uint8_t _flags;
-    uint16_t _request_id;
-    uint16_t _reserved;
-    uint16_t payload_length;
+    someip::types::uint8 _flags;
+    someip::types::uint16 _request_id;
+    someip::types::uint16 _reserved;
+    someip::types::uint16 payload_length;
 };
 
-struct ipc_register_message_t {
-    std::string_view application_name;
-    uint16_t application_id;
+struct register_message_t {
+    someip::types::dlstring_utf8 app_name;
+    someip::types::uint16 app_id;
 };
 
-using ipc_unregister_message_t = ipc_register_message_t;
-using ipc_offer_services_message_t = std::span<const threesomeip::config::service_configuration_t>;
-using ipc_request_services_message_t = std::span<const threesomeip::config::service_configuration_t>;
+using unregister_message_t = register_message_t;
+
+using offer_message_t = someip::types::dlarray<config::service_configuration_t>;
+using request_message_t = offer_message_t;
+
+} // namespace types
 
 } // namespace threesomeip::ipc
 #endif // _COMM_IPC_HPP

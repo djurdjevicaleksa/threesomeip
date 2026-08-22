@@ -22,6 +22,7 @@
 namespace fs = std::filesystem;
 
 namespace threesomeip::runtime {
+using namespace threesomeip;
 
 
 class runtime_stub_t {
@@ -41,15 +42,15 @@ private:
     // ) noexcept;
 
     void handle_on_receive(
-        threesomeip::ipc::ud_socket_t& self,
-        const threesomeip::ipc::socket_handle_t& sender,
+        ipc::ud_socket_t& self,
+        const ipc::types::socket_handle_t& sender,
         const std::span<const std::byte> data
     ) noexcept;
 
-    std::string_view ipc_message_type_name(threesomeip::ipc::message_type_t type);
+    std::string_view message_type_name(ipc::types::message_type_t type) const;
 
-    threesomeip::ipc::socket_handle_t m_own_socket_handle;
-    threesomeip::ipc::ud_socket_t m_socket;
+    ipc::types::socket_handle_t m_own_socket_handle;
+    ipc::ud_socket_t m_socket;
 
     std::shared_ptr<spdlog::logger> m_logger;
 };

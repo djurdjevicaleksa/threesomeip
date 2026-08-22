@@ -22,7 +22,8 @@
  * APPLICATION *
 \*=============*/
 #include <runtime_proxy.hpp>
-#include <serialization.hpp>
+#include <serdes/serialization.hpp>
+#include <serdes/someip_types.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -60,7 +61,7 @@ runtime_proxy_t::runtime_proxy_t(
         ipc::send_result_t delayed_result{};
 
         const ipc::send_result_t result = request(
-            [&] (const ipc::send_result_t result, [[maybe_unused]] const ipc::socket_handle_t& recipient, [[maybe_unused]] const std::span<const std::byte> data) {
+            [&] (const ipc::send_result_t result, [[maybe_unused]] const ipc::types::socket_handle_t& recipient, [[maybe_unused]] const std::span<const std::byte> data) {
                 {
                     std::unique_lock<std::mutex> lock(_m);
                     callback_triggered = true;
@@ -112,182 +113,118 @@ runtime_proxy_t::runtime_proxy_t(
 }
 
 ipc::send_result_t runtime_proxy_t::registerApplication(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    using namespace threesomeip::ipc;
+    using namespace threesomeip;
 
-    std::array<std::byte, MAX_PAYLOAD_SIZE> message_buffer{};
+    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
 
     /* calculate the size of the serialized header */
-    const size_t header_length{serdes::serialize_dry_run(threesomeip::ipc::ipc_message_header_t{})};
+    constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
 
-    /* construct the payload and serialize it */
-    threesomeip::ipc::ipc_register_message_t payload{
-        .application_name{m_app_name},
-        .application_id{m_app_id}
+    /* serialize the payload at an offset equal to the length of the header so we get the payload length */
+    ipc::types::register_message_t message{
+        .app_name{m_app_name},
+        .app_id{m_app_id}
     };
-
-    size_t payload_length = serdes::serialize(message_buffer.data() + header_length, payload);
+    size_t payload_length = someip::serdes::serialize(message_buffer.data() + ipc_header_length, message);
 
     /* construct the header with the correct payload size and serialize it */
-    threesomeip::ipc::ipc_message_header_t message_header{
-        .start_of_frame{
-            static_cast<std::byte>('#'),
-            static_cast<std::byte>('t'),
-            static_cast<std::byte>('h'),
-            static_cast<std::byte>('r'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('s'),
-            static_cast<std::byte>('o'),
-            static_cast<std::byte>('m'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('i'),
-            static_cast<std::byte>('p'),
-            static_cast<std::byte>('#'),
-        },
+    ipc::types::message_header_t message_header{
+        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
         .protocol_version{1},
-        .message_type{threesomeip::ipc::message_type_t::REGISTER_APPLICATION},
-        ._flags{static_cast<uint8_t>(0)},
-        ._request_id{static_cast<uint16_t>(0)},
-        ._reserved{static_cast<uint16_t>(0)},
-        .payload_length{static_cast<uint16_t>(payload_length)},
+        .message_type{ipc::types::message_type_t::REGISTER_APPLICATION},
+        ._flags{someip::types::uint8{0}},
+        ._request_id{someip::types::uint16{0}},
+        ._reserved{someip::types::uint16{0}},
+        .payload_length{static_cast<someip::types::uint16>(payload_length)},
     };
-    serdes::serialize(message_buffer.data(), message_header);
+    someip::serdes::serialize(message_buffer.data(), message_header);
 
-    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, header_length + payload_length), std::move(delayed_cb));
+    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
 ipc::send_result_t runtime_proxy_t::unregisterApplication(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    using namespace threesomeip::ipc;
+    using namespace threesomeip;
 
-    std::array<std::byte, MAX_PAYLOAD_SIZE> message_buffer{};
+    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
 
     /* calculate the size of the serialized header */
-    const size_t header_length{serdes::serialize_dry_run(threesomeip::ipc::ipc_message_header_t{})};
+    constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
 
-    /* construct the payload and serialize it */
-    threesomeip::ipc::ipc_unregister_message_t payload{
-        .application_name{m_app_name},
-        .application_id{m_app_id}
+    /* serialize the payload at an offset equal to the length of the header so we get the payload length */
+    ipc::types::unregister_message_t message{
+        .app_name{m_app_name},
+        .app_id{m_app_id}
     };
-
-    size_t payload_length = serdes::serialize(message_buffer.data() + header_length, payload);
+    size_t payload_length = someip::serdes::serialize(message_buffer.data() + ipc_header_length, message);
 
     /* construct the header with the correct payload size and serialize it */
-    threesomeip::ipc::ipc_message_header_t message_header{
-        .start_of_frame{
-            static_cast<std::byte>('#'),
-            static_cast<std::byte>('t'),
-            static_cast<std::byte>('h'),
-            static_cast<std::byte>('r'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('s'),
-            static_cast<std::byte>('o'),
-            static_cast<std::byte>('m'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('i'),
-            static_cast<std::byte>('p'),
-            static_cast<std::byte>('#'),
-        },
+    ipc::types::message_header_t message_header{
+        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
         .protocol_version{1},
-        .message_type{threesomeip::ipc::message_type_t::UNREGISTER_APPLICATION},
-        ._flags{static_cast<uint8_t>(0)},
-        ._request_id{static_cast<uint16_t>(0)},
-        ._reserved{static_cast<uint16_t>(0)},
-        .payload_length{static_cast<uint16_t>(payload_length)},
+        .message_type{ipc::types::message_type_t::UNREGISTER_APPLICATION},
+        ._flags{someip::types::uint8{0}},
+        ._request_id{someip::types::uint16{0}},
+        ._reserved{someip::types::uint16{0}},
+        .payload_length{static_cast<someip::types::uint16>(payload_length)},
     };
-    serdes::serialize(message_buffer.data(), message_header);
+    someip::serdes::serialize(message_buffer.data(), message_header);
 
-    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, header_length + payload_length), std::move(delayed_cb));
+    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
 ipc::send_result_t runtime_proxy_t::offerServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    using namespace threesomeip::ipc;
+    using namespace threesomeip;
 
-    std::array<std::byte, MAX_PAYLOAD_SIZE> message_buffer{};
+    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
 
     /* calculate the size of the serialized header */
-    const size_t header_length{serdes::serialize_dry_run(threesomeip::ipc::ipc_message_header_t{})};
+    constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
 
-    /* construct the payload and serialize it */
-    threesomeip::ipc::ipc_offer_services_message_t payload{
-        m_offered_services
-    };
-
-    size_t payload_length = serdes::serialize(message_buffer.data() + header_length, payload);
+    /* serialize the payload at an offset equal to the length of the header so we get the payload length */
+    ipc::types::offer_message_t message{m_offered_services};
+    size_t payload_length = someip::serdes::serialize(message_buffer.data() + ipc_header_length, message);
 
     /* construct the header with the correct payload size and serialize it */
-    threesomeip::ipc::ipc_message_header_t message_header{
-        .start_of_frame{
-            static_cast<std::byte>('#'),
-            static_cast<std::byte>('t'),
-            static_cast<std::byte>('h'),
-            static_cast<std::byte>('r'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('s'),
-            static_cast<std::byte>('o'),
-            static_cast<std::byte>('m'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('i'),
-            static_cast<std::byte>('p'),
-            static_cast<std::byte>('#'),
-        },
+    ipc::types::message_header_t message_header{
+        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
         .protocol_version{1},
-        .message_type{threesomeip::ipc::message_type_t::OFFER_SERVICE},
-        ._flags{static_cast<uint8_t>(0)},
-        ._request_id{static_cast<uint16_t>(0)},
-        ._reserved{static_cast<uint16_t>(0)},
-        .payload_length{static_cast<uint16_t>(payload_length)},
+        .message_type{ipc::types::message_type_t::OFFER_SERVICE},
+        ._flags{someip::types::uint8{0}},
+        ._request_id{someip::types::uint16{0}},
+        ._reserved{someip::types::uint16{0}},
+        .payload_length{static_cast<someip::types::uint16>(payload_length)},
     };
-    serdes::serialize(message_buffer.data(), message_header);
+    someip::serdes::serialize(message_buffer.data(), message_header);
 
-    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, header_length + payload_length), std::move(delayed_cb));
+    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
 
 ipc::send_result_t runtime_proxy_t::requestServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    using namespace threesomeip::ipc;
+    using namespace threesomeip;
 
-    std::array<std::byte, MAX_PAYLOAD_SIZE> message_buffer{};
+    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
 
     /* calculate the size of the serialized header */
-    const size_t header_length{serdes::serialize_dry_run(threesomeip::ipc::ipc_message_header_t{})};
+    constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
 
-    /* construct the payload and serialize it */
-    threesomeip::ipc::ipc_request_services_message_t payload{
-        m_requested_services
-    };
-
-    size_t payload_length = serdes::serialize(message_buffer.data() + header_length, payload);
+    /* serialize the payload at an offset equal to the length of the header so we get the payload length */
+    ipc::types::request_message_t message{m_offered_services};
+    size_t payload_length = someip::serdes::serialize(message_buffer.data() + ipc_header_length, message);
 
     /* construct the header with the correct payload size and serialize it */
-    threesomeip::ipc::ipc_message_header_t message_header{
-        .start_of_frame{
-            static_cast<std::byte>('#'),
-            static_cast<std::byte>('t'),
-            static_cast<std::byte>('h'),
-            static_cast<std::byte>('r'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('s'),
-            static_cast<std::byte>('o'),
-            static_cast<std::byte>('m'),
-            static_cast<std::byte>('e'),
-            static_cast<std::byte>('i'),
-            static_cast<std::byte>('p'),
-            static_cast<std::byte>('#'),
-        },
+    ipc::types::message_header_t message_header{
+        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
         .protocol_version{1},
-        .message_type{threesomeip::ipc::message_type_t::REQUEST_SERVICE},
-        ._flags{static_cast<uint8_t>(0)},
-        ._request_id{static_cast<uint16_t>(0)},
-        ._reserved{static_cast<uint16_t>(0)},
-        .payload_length{static_cast<uint16_t>(payload_length)},
+        .message_type{ipc::types::message_type_t::REQUEST_SERVICE},
+        ._flags{someip::types::uint8{0}},
+        ._request_id{someip::types::uint16{0}},
+        ._reserved{someip::types::uint16{0}},
+        .payload_length{static_cast<someip::types::uint16>(payload_length)},
     };
-    serdes::serialize(message_buffer.data(), message_header);
+    someip::serdes::serialize(message_buffer.data(), message_header);
 
-    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, header_length + payload_length), std::move(delayed_cb));
+    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
 
