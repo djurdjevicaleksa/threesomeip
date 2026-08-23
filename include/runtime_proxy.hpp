@@ -9,6 +9,9 @@
 #include <span>
 #include <filesystem>
 #include <optional>
+#include <cstddef>
+#include <functional>
+#include <vector>
 
 /*=============*\
  * APPLICATION *
@@ -30,6 +33,8 @@ using namespace threesomeip;
 
 class runtime_proxy_t {
 public:
+    using MessageReceivedCallback = std::function<void(std::span<const std::byte>)>;
+
     runtime_proxy_t(
         const fs::path& sockets_path,
         std::string_view app_name,
@@ -40,11 +45,20 @@ public:
     ) noexcept;
 
 
-    ipc::send_result_t registerApplication(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
-    ipc::send_result_t unregisterApplication(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
-    ipc::send_result_t offerServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
-    ipc::send_result_t requestServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
-    ipc::send_result_t invoke(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
+    ipc::send_result_t register_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
+    ipc::send_result_t unregister_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
+    ipc::send_result_t offer_services(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
+    ipc::send_result_t request_services(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
+    ipc::send_result_t send(
+        std::span<const std::byte> someip_payload,
+        std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb
+    );
+
+    uint16_t get_id() const {
+        return m_app_id;
+    }
+
+    void register_message_listener(MessageReceivedCallback);
 
 private:
 
@@ -55,10 +69,10 @@ private:
     // ) noexcept;
 
     void handle_on_receive(
-        [[maybe_unused]] ipc::ud_socket_t& self,
-        [[maybe_unused]] const ipc::types::socket_handle_t& sender,
-        [[maybe_unused]] const std::span<const std::byte> data
-    ) noexcept {};
+        ipc::ud_socket_t& self,
+        const ipc::types::socket_handle_t& sender,
+        const std::span<const std::byte> data
+    ) noexcept;
 
 
     const std::string m_app_name;
@@ -68,6 +82,8 @@ private:
     ipc::types::socket_handle_t m_runtime_handle;
     std::vector<config::service_configuration_t> m_offered_services;
     std::vector<config::service_configuration_t> m_requested_services;
+
+    std::vector<MessageReceivedCallback> m_registered_listeners;
 
     ipc::ud_socket_t m_socket;
 };

@@ -53,7 +53,7 @@ enum class message_type_t: uint8_t {
     ERROR                       = 0x81
 };
 
-enum class error_type_t: uint8_t {
+enum class return_code_t: uint8_t {
     E_OK = 0x00,
     E_NOT_OK = 0x01,
     E_UNKNOWN_SERVICE = 0x02,
@@ -69,18 +69,20 @@ enum class error_type_t: uint8_t {
 
 struct message_header_t {
     struct {
-        uint16_t service_id;    /* whose services are requested */
-        uint16_t method_id;     /* their method* */
+        uint16 service_id;    /* whose services are requested */
+        uint16 method_id;     /* their method* */
     } message_id;
-    uint32_t length;
+    uint32 length;
     struct {
-        uint16_t client_id;     /* who requests the service */
-        uint16_t session_id;    /* counter */
+        uint16 client_id;     /* who requests the service */
+        uint16 session_id;    /* counter */
     } request_id;
-    uint8_t protocol_version;
-    uint8_t interface_version;
+    uint8 protocol_version;
+    uint8 interface_version;
     message_type_t message_type;
-    uint8_t return_code;
+    uint8 return_code;
+
+    bool operator==(const message_header_t&) const = default;
 };
 
 } // threesomeip::someip::types

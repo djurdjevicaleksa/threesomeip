@@ -1,9 +1,17 @@
+/*=====*\
+ * C++ *
+\*=====*/
 #include <print>
 
+/*=============*\
+ * APPLICATION *
+\*=============*/
 #include <calculator_stub_impl.hpp>
 
 
 namespace calculator {
+
+calculator_stub_impl_t::calculator_stub_impl_t(runtime::runtime_proxy_t& runtime_proxy): calculator_stub_t(runtime_proxy) {}
 
 float calculator_stub_impl_t::on_add(float a, float b) const {
     return a + b;

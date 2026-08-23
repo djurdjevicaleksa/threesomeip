@@ -18,18 +18,18 @@ target_link_libraries ( threesomeip_impl
 
 target_compile_options( threesomeip_impl
     PRIVATE
-        -Wall
-        -Wextra
-        -pedantic
-        -O0
-        -g3
-        -Wimplicit-fallthrough
+        -Wall -Wextra -Wpedantic -Wimplicit-fallthrough -Wshadow -Wconversion
+        -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wundef -Wcast-align -Wcast-qual -Wold-style-cast
+        -Woverloaded-virtual -Wnon-virtual-dtor -Wmisleading-indentation -Wduplicated-cond
+        -Wduplicated-branches -Wlogical-op -Wuseless-cast
+        -g3 -O0
 )
+
 
 # APPLICATIONS
 
 macro(build_application application_name)
-    add_executable( ${application_name} 
+    add_executable( ${application_name}
         "${application_name}.cpp"
     )
 
@@ -40,14 +40,15 @@ macro(build_application application_name)
 
     target_compile_options( ${application_name}
         PRIVATE
-            -Wall
-            -Wextra
-            -pedantic
-            -O0
-            -g3
-            -Wimplicit-fallthrough
+            -Wall -Wextra -Wpedantic -Wimplicit-fallthrough -Wshadow -Wconversion
+            -Wnull-dereference -Wdouble-promotion -Wformat=2 -Wundef -Wcast-align -Wcast-qual -Wold-style-cast
+            -Woverloaded-virtual -Wnon-virtual-dtor -Wmisleading-indentation -Wduplicated-cond
+            -Wduplicated-branches -Wlogical-op -Wuseless-cast
+            -g3 -O0
     )
 endmacro()
 
 build_application(runtime)
-build_application(client)
+
+# build_application(main_calculator_proxy)
+# build_application(main_calculator_stub)

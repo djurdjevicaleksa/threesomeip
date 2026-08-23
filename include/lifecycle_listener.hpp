@@ -22,6 +22,8 @@ public:
         return lifecycle_stage_t::DEAD == m_stage.load(std::memory_order_acquire);
     }
 
+    virtual ~lifecycle_listener_t() = default;
+
 protected:
 
     bool to_alive() {

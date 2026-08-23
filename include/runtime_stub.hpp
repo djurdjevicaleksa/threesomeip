@@ -6,6 +6,14 @@
 \*=====*/
 #include <filesystem>
 #include <string>
+#include <utility>
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include <functional>
+#include <span>
+#include <cstddef>
 
 /*=============*\
  * APPLICATION *
@@ -53,6 +61,40 @@ private:
     ipc::ud_socket_t m_socket;
 
     std::shared_ptr<spdlog::logger> m_logger;
+
+
+    using service_id_t = uint16_t;
+    using application_id_t = uint16_t;
+
+    struct application_entry_t {
+        application_id_t app_id;
+        std::string app_name;
+        std::vector<config::service_configuration_t> offered_services;
+        std::vector<config::service_configuration_t> requested_services;
+    };
+
+    struct request_key_t {
+        uint16_t service_id;    /* whose services are requested */
+        uint16_t method_id;     /* their method* */
+        uint16_t client_id;     /* who requests the service */
+        uint16_t session_id;    /* counter */
+
+        bool operator==(const request_key_t&) const = default;
+    };
+
+    struct request_key_hash_t {
+        size_t operator()(const request_key_t& k) const {
+            size_t h = std::hash<uint16_t>{}(k.service_id);
+            h ^= std::hash<uint16_t>{}(k.method_id)  + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<uint16_t>{}(k.client_id)  + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<uint16_t>{}(k.session_id) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            return h;
+        }
+    };
+
+    std::unordered_map<ipc::types::socket_handle_t, application_entry_t> m_applications;
+    std::unordered_map<service_id_t, ipc::types::socket_handle_t> m_service_to_owner;
+    std::unordered_map<request_key_t, ipc::types::socket_handle_t, request_key_hash_t> m_pending_requests;
 };
 
 } // namespace threesomeip::runtime

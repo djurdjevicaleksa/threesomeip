@@ -24,6 +24,7 @@
 #include <runtime_proxy.hpp>
 #include <serdes/serialization.hpp>
 #include <serdes/someip_types.hpp>
+#include <comm_ipc.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -60,7 +61,7 @@ runtime_proxy_t::runtime_proxy_t(
         bool callback_triggered{false};
         ipc::send_result_t delayed_result{};
 
-        const ipc::send_result_t result = request(
+        const ipc::send_result_t request_result = request(
             [&] (const ipc::send_result_t result, [[maybe_unused]] const ipc::types::socket_handle_t& recipient, [[maybe_unused]] const std::span<const std::byte> data) {
                 {
                     std::unique_lock<std::mutex> lock(_m);
@@ -72,7 +73,7 @@ runtime_proxy_t::runtime_proxy_t(
         );
 
         std::unique_lock<std::mutex> lock(_m);
-        switch (result) {
+        switch (request_result) {
             case ipc::send_result_t::DELAYED_RESULT: {
                 /* wait for callback */
                 _cv.wait(
@@ -99,9 +100,9 @@ runtime_proxy_t::runtime_proxy_t(
 
     /* step by step initialization */
     while (true) {
-        if (   !single_request(std::bind_front(&runtime_proxy_t::registerApplication, this))
-            && !single_request(std::bind_front(&runtime_proxy_t::offerServices, this))
-            && !single_request(std::bind_front(&runtime_proxy_t::requestServices, this))) {
+        if (   !single_request(std::bind_front(&runtime_proxy_t::register_application, this))
+            && !single_request(std::bind_front(&runtime_proxy_t::offer_services, this))
+            && !single_request(std::bind_front(&runtime_proxy_t::request_services, this))) {
 
             break;
         }
@@ -112,7 +113,7 @@ runtime_proxy_t::runtime_proxy_t(
     }
 }
 
-ipc::send_result_t runtime_proxy_t::registerApplication(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
+ipc::send_result_t runtime_proxy_t::register_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
     using namespace threesomeip;
 
     std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
@@ -142,7 +143,7 @@ ipc::send_result_t runtime_proxy_t::registerApplication(std::optional<ipc::ud_so
     return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
-ipc::send_result_t runtime_proxy_t::unregisterApplication(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
+ipc::send_result_t runtime_proxy_t::unregister_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
     using namespace threesomeip;
 
     std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
@@ -172,7 +173,7 @@ ipc::send_result_t runtime_proxy_t::unregisterApplication(std::optional<ipc::ud_
     return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
-ipc::send_result_t runtime_proxy_t::offerServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
+ipc::send_result_t runtime_proxy_t::offer_services(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
     using namespace threesomeip;
 
     std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
@@ -200,7 +201,7 @@ ipc::send_result_t runtime_proxy_t::offerServices(std::optional<ipc::ud_socket_t
 }
 
 
-ipc::send_result_t runtime_proxy_t::requestServices(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
+ipc::send_result_t runtime_proxy_t::request_services(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
     using namespace threesomeip;
 
     std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
@@ -227,5 +228,45 @@ ipc::send_result_t runtime_proxy_t::requestServices(std::optional<ipc::ud_socket
     return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
+ipc::send_result_t runtime_proxy_t::send(std::span<const std::byte> someip_payload, std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
+    using namespace threesomeip;
+
+    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
+
+    /* construct the header and serialize it */
+    ipc::types::message_header_t message_header{
+        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
+        .protocol_version{1},
+        .message_type{ipc::types::message_type_t::SEND},
+        ._flags{someip::types::uint8{0}},
+        ._request_id{someip::types::uint16{0}},
+        ._reserved{someip::types::uint16{0}},
+        .payload_length{static_cast<someip::types::uint16>(someip_payload.size())},
+    };
+    size_t header_length = someip::serdes::serialize(message_buffer.data(), message_header);
+
+    /* copy the already serialized payload containing the someip header and someip payload into the buffer */
+    std::ranges::copy(someip_payload, message_buffer.begin() + header_length);
+
+    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, header_length + someip_payload.size()), std::move(delayed_cb));
+}
+
+void runtime_proxy_t::register_message_listener(MessageReceivedCallback cb) {
+    m_registered_listeners.emplace_back(std::move(cb));
+}
+
+void runtime_proxy_t::handle_on_receive(ipc::ud_socket_t& self, const ipc::types::socket_handle_t& sender, const std::span<const std::byte> data) noexcept {
+    constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
+
+    std::byte* cursor{nullptr};
+    const auto ipc_message_header = someip::serdes::deserialize<ipc::types::message_header_t>(data.data(), &cursor);
+
+    if (ipc_message_header.protocol_version != someip::types::uint8{1}) return;
+    if (ipc_message_header.message_type != ipc::types::message_type_t::SEND) return;
+
+    for (const auto& callback: m_registered_listeners) {
+        callback(data.subspan(ipc_header_length));
+    }
+}
 
 } // namespace threesomeip

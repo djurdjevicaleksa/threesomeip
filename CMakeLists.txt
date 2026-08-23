@@ -20,6 +20,25 @@ add_subdirectory(${gtest})
 # Compile the implementation first
 add_subdirectory(src)
 
+add_subdirectory(example)
+
+add_executable( calculator_proxy
+    "src/main_calculator_proxy.cpp"
+)
+
+target_link_libraries( calculator_proxy
+    PRIVATE
+        calculator_proxy_lib
+)
+
+add_executable( calculator_stub
+    "src/main_calculator_stub.cpp"
+)
+
+target_link_libraries( calculator_stub
+    PRIVATE
+        calculator_stub_lib
+)
 
 # Then the test binary
 enable_testing()

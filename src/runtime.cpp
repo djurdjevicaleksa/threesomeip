@@ -20,7 +20,6 @@ int main(int argc, char** argv) {
         "runtime"
     };
 
-
     std::getchar();
 
     return 0;

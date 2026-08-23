@@ -119,7 +119,7 @@ T _deserialize(std::byte*& in) {
         /* copy data, move cursor */
         std::ranges::copy_n(
             reinterpret_cast<const char*>(in),
-            std::min(static_cast<size_t>(length - bom_utf8.size() /* '\0' */ - size_t{1}), std::tuple_size_v<T>),
+            std::min(length - bom_utf8.size() /* '\0' */ - size_t{1}, std::tuple_size_v<T>),
             ret.begin()
         );
         in += length - bom_utf8.size(); /* skip '\0' which was added during serialization */
