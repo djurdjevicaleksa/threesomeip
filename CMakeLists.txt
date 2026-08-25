@@ -5,6 +5,7 @@ set(3rd_parties     "${CMAKE_SOURCE_DIR}/3rd_party")
 set(spd             "${3rd_parties}/spdlog")
 set(json            "${3rd_parties}/json")
 set(gtest           "${3rd_parties}/gtest")
+set(ftxui           "${3rd_parties}/ftxui")
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,6 +16,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 # Build dependencies
 add_subdirectory(${spd})
 add_subdirectory(${gtest})
+add_subdirectory(${ftxui})
 
 
 # Compile the implementation first
@@ -29,6 +31,7 @@ add_executable( calculator_proxy
 target_link_libraries( calculator_proxy
     PRIVATE
         calculator_proxy_lib
+        ftxui
 )
 
 add_executable( calculator_stub

@@ -7,3 +7,6 @@
 [submodule "3rd_party/gtest"]
 	path = 3rd_party/gtest
 	url = https://github.com/google/googletest
+[submodule "3rd_party/ftxui"]
+	path = 3rd_party/ftxui
+	url = https://github.com/ArthurSonzogni/FTXUI

@@ -210,7 +210,7 @@ ipc::send_result_t runtime_proxy_t::request_services(std::optional<ipc::ud_socke
     constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
 
     /* serialize the payload at an offset equal to the length of the header so we get the payload length */
-    ipc::types::request_message_t message{m_offered_services};
+    ipc::types::request_message_t message{m_requested_services};
     size_t payload_length = someip::serdes::serialize(message_buffer.data() + ipc_header_length, message);
 
     /* construct the header with the correct payload size and serialize it */

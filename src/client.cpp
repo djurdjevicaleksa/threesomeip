@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
     using namespace threesomeip;
 
     runtime::runtime_proxy_t client{
-        "/home/lecq/Desktop/threesomeip/ipc_sockets",
+        "/home/adjurdjevic/Desktop/threesomeip/ipc_sockets",
         "test_client",
         uint16_t{1},
         "runtime",

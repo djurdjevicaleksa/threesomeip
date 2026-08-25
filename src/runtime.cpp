@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
     using namespace threesomeip;
 
     runtime::runtime_stub_t runtime{
-        "/home/lecq/Desktop/threesomeip/ipc_sockets",
+        "/home/adjurdjevic/Desktop/threesomeip/ipc_sockets",
         "runtime"
     };
 
