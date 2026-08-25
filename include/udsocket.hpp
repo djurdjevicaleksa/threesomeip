@@ -22,6 +22,7 @@
 \*=============*/
 #include <lifecycle_listener.hpp>
 #include <comm_ipc.hpp>
+#include <active_object.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -54,11 +55,12 @@ public:
 
 
     ud_socket_t(
+        utils::active_object_ptr_t active_object,
         const types::socket_handle_t& self,
         std::optional<ReceiveCallback> on_receive
     ) noexcept;
 
-    ud_socket_t() noexcept;
+    ud_socket_t(utils::active_object_ptr_t active_object) noexcept;
 
     ~ud_socket_t() noexcept;
 
@@ -82,6 +84,8 @@ private:
 
     void on_dead() override;
 
+
+    utils::active_object_ptr_t m_active_object;
 
     int m_ud_socket_fd;
 

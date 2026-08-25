@@ -43,7 +43,7 @@ public:
         read_spec.it_value = {s.count(), ns.count()};
         timerfd_settime(m_timerfd, 0, &read_spec, nullptr);
 
-        m_active_object->add_fd_to_watchlist(m_timerfd, m_callback);
+        m_active_object->add_fd_to_readable_watchlist(m_timerfd, m_callback);
 
         return true;
     }
@@ -84,7 +84,7 @@ public:
         read_spec.it_value = {0, 0};
         timerfd_settime(m_timerfd, 0, &read_spec, nullptr);
 
-        m_active_object->remove_fd_from_watchlist(m_timerfd);
+        m_active_object->remove_fd_from_readable_watchlist(m_timerfd);
         m_state.store(timer_state_t::STOPPED, std::memory_order_release);
 
         return true;
@@ -167,7 +167,7 @@ private:
             if (cb) [[likely]] cb();
 
             if (self->m_oneshot) {
-                self->m_active_object->remove_fd_from_watchlist(self->m_timerfd);
+                self->m_active_object->remove_fd_from_readable_watchlist(self->m_timerfd);
             }
         };
     }

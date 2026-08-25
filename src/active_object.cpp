@@ -52,29 +52,135 @@ void active_object_t::add_to_todo_list(Fn job) {
     }
 }
 
-void active_object_t::add_fd_to_watchlist(int fd, Fn callback) {
+bool active_object_t::add_fd_to_readable_watchlist(int fd, Fn callback) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_polled_fds.emplace_back(fd, /* watched events */ static_cast<short int>(POLLIN), static_cast<short int>(0));
-        m_fd_job.emplace(fd, std::move(callback));
+        bool notify = false;
 
-        /* wake the thread */
-        uint64_t flag{1};
-        (void) write(m_external_stimuli_eventfd, &flag, sizeof(flag));
+        auto it = std::ranges::find_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
+        if (it == m_polled_fds.end()) {
+            m_polled_fds.emplace_back(fd, /* watched events */ static_cast<short int>(POLLIN), static_cast<short int>(0));
+            m_fd_readable_job.emplace(fd, std::move(callback));
+
+            /* actual change happened */
+            notify = true;
+        }
+        else if (! (it->events & POLLIN)) {
+            it->events |= POLLIN;
+            m_fd_readable_job.emplace(fd, std::move(callback));
+
+            /* subscribed to something, but not POLLIN; actual change */
+            notify = true;
+        }
+        else {
+            /* no change observed */
+            return false;
+        }
+
+        if (notify) {
+            /* wake the thread */
+            uint64_t flag{1};
+            (void) write(m_external_stimuli_eventfd, &flag, sizeof(flag));
+        }
+
+        return true;
     }
 }
 
-void active_object_t::remove_fd_from_watchlist(int fd) {
+bool active_object_t::add_fd_to_writeable_watchlist(int fd, Fn callback) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        std::erase_if(m_polled_fds, [fd] (const pollfd& polled_fd) {
-            return polled_fd.fd == fd;
-        });
-        m_fd_job.erase(fd);
+        bool notify = false;
 
-        /* wake the thread */
-        uint64_t flag{1};
-        (void) write(m_external_stimuli_eventfd, &flag, sizeof(flag));
+        auto it = std::ranges::find_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
+        if (it == m_polled_fds.end()) {
+            m_polled_fds.emplace_back(fd, /* watched events */ static_cast<short int>(POLLOUT), static_cast<short int>(0));
+            m_fd_writeable_job.emplace(fd, std::move(callback));
+
+            /* actual change happened */
+            notify = true;
+        }
+        else if (! (it->events & POLLOUT)) {
+            it->events |= POLLOUT;
+            m_fd_writeable_job.emplace(fd, std::move(callback));
+
+            /* subscribed to something, but not POLLOUT; actual change */
+            notify = true;
+        }
+        else {
+            /* no change observed */
+            return false;
+        }
+
+        if (notify) {
+            /* wake the thread */
+            uint64_t flag{1};
+            (void) write(m_external_stimuli_eventfd, &flag, sizeof(flag));
+        }
+
+        return true;
+    }
+}
+
+bool active_object_t::remove_fd_from_readable_watchlist(int fd) {
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        auto it = std::ranges::find_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
+        if (it == m_polled_fds.end()) {
+            /* nothing to remove */
+            return false;
+        }
+        else if (! (it->events & POLLIN)) {
+            /* not subscribed to POLLIN */
+            return false;
+        }
+        else {
+            /* is subscribed to POLLIN */
+            it->events &= ~POLLIN;
+            m_fd_readable_job.erase(fd);
+
+            if (! (it->events & POLLOUT)) {
+                /* if not subscribed to POLLOUT after unsubscribing from POLLIN, then remove */
+                std::erase_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
+            }
+
+            /* wake the thread */
+            uint64_t flag{1};
+            (void) write(m_external_stimuli_eventfd, &flag, sizeof(flag));
+            return true;
+        }
+    }
+}
+
+bool active_object_t::remove_fd_from_writeable_watchlist(int fd) {
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        auto it = std::ranges::find_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
+        if (it == m_polled_fds.end()) {
+            /* nothing to remove */
+            return false;
+        }
+        else if (! (it->events & POLLOUT)) {
+            /* not subscribed to POLLOUT */
+            return false;
+        }
+        else {
+            /* is subscribed to POLLOUT */
+            it->events &= ~POLLOUT;
+            m_fd_writeable_job.erase(fd);
+
+            if (! (it->events & POLLIN)) {
+                /* if not subscribed to POLLIN after unsubscribing from POLLOUT, then remove */
+                std::erase_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
+            }
+
+            /* wake the thread */
+            uint64_t flag{1};
+            (void) write(m_external_stimuli_eventfd, &flag, sizeof(flag));
+            return true;
+        }
     }
 }
 
@@ -107,9 +213,23 @@ void active_object_t::work() {
             | std::views::filter([this] (const pollfd& polled_fd) { return (polled_fd.revents & POLLIN) && (polled_fd.fd != m_external_stimuli_eventfd); }),
 
             [this, &lock] (const pollfd& readable_polled_fd) {
-                if (m_fd_job.contains(readable_polled_fd.fd) && m_fd_job[readable_polled_fd.fd]) {
+                if (m_fd_readable_job.contains(readable_polled_fd.fd) && m_fd_readable_job.at(readable_polled_fd.fd)) {
                     /* explicitly copy because it can be removed in the unlocked window */
-                    const auto callback = m_fd_job[readable_polled_fd.fd];
+                    const auto callback = m_fd_readable_job.at(readable_polled_fd.fd);
+                    lock.unlock();
+                    callback();
+                    lock.lock();
+                }
+            }
+        );
+
+        std::ranges::for_each(polled_fds_snapshot
+            | std::views::filter([this] (const pollfd& polled_fd) { return (polled_fd.revents & POLLOUT) && (polled_fd.fd != m_external_stimuli_eventfd); }),
+
+            [this, &lock] (const pollfd& writeable_polled_fd) {
+                if (m_fd_writeable_job.contains(writeable_polled_fd.fd) && m_fd_writeable_job.at(writeable_polled_fd.fd)) {
+                    /* explicitly copy because it can be removed in the unlocked window */
+                    const auto callback = m_fd_writeable_job.at(writeable_polled_fd.fd);
                     lock.unlock();
                     callback();
                     lock.lock();

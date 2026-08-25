@@ -30,9 +30,11 @@ public:
 
     void add_to_todo_list(Fn);
 
-    void add_fd_to_watchlist(int, Fn);
+    bool add_fd_to_readable_watchlist(int, Fn);
+    bool add_fd_to_writeable_watchlist(int, Fn);
 
-    void remove_fd_from_watchlist(int);
+    bool remove_fd_from_readable_watchlist(int);
+    bool remove_fd_from_writeable_watchlist(int);
 
     void work();
 
@@ -50,7 +52,8 @@ private:
     int m_external_stimuli_eventfd;
     std::vector<pollfd> m_polled_fds;
 
-    std::unordered_map<int, Fn> m_fd_job;
+    std::unordered_map<int, Fn> m_fd_readable_job;
+    std::unordered_map<int, Fn> m_fd_writeable_job;
 
     std::thread t_worker;
 };

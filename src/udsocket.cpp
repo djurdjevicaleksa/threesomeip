@@ -24,6 +24,7 @@
 \*=============*/
 #include <udsocket.hpp>
 #include <comm_ipc.hpp>
+#include <active_object.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -52,13 +53,13 @@
 namespace threesomeip::ipc {
 
 
-ud_socket_t::ud_socket_t(const types::socket_handle_t& self, std::optional<ReceiveCallback> on_receive) noexcept:
-    m_ud_socket_fd(-1), m_wakeup_fd(-1), m_self(self), m_on_receive(std::move(on_receive.value_or(nullptr))) {
+ud_socket_t::ud_socket_t(utils::active_object_ptr_t active_object, const types::socket_handle_t& self, std::optional<ReceiveCallback> on_receive) noexcept:
+    m_active_object(active_object), m_ud_socket_fd(-1), m_wakeup_fd(-1), m_self(self), m_on_receive(std::move(on_receive.value_or(nullptr))) {
     this->init();
 }
 
-ud_socket_t::ud_socket_t() noexcept:
-    m_ud_socket_fd(-1), m_wakeup_fd(-1) {
+ud_socket_t::ud_socket_t(utils::active_object_ptr_t active_object) noexcept:
+    m_active_object(active_object), m_ud_socket_fd(-1), m_wakeup_fd(-1) {
     this->init();
 }
 
@@ -77,6 +78,9 @@ void ud_socket_t::init() noexcept {
             break;
         }
         else m_ud_socket_fd = sock;
+
+        m_active_object->add_fd_to_readable_watchlist()
+
         m_logger->info("Opened a socket");
 
         /* Set into non-blocking state */
