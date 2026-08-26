@@ -18,4 +18,4 @@ if [[ ! -d "${BUILD_DIR}" ]]; then
 fi
 
 cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}"
-cmake --build "${BUILD_DIR}" -j"$(nproc)"
+cmake --build "${BUILD_DIR}" -j"$(nproc / 2)"

@@ -10,6 +10,7 @@
 #include <thread>
 #include <memory>
 #include <cstdlib>
+#include <string>
 
 /*=============*\
  * APPLICATION *
@@ -20,10 +21,11 @@
 namespace threesomeip::utils {
 
 
-active_object_t::active_object_t():
+active_object_t::active_object_t(std::string_view name):
     f_terminate{false},
     m_external_stimuli_eventfd(eventfd(0, EFD_CLOEXEC)),
     m_polled_fds{pollfd{m_external_stimuli_eventfd, static_cast<short int>(POLLIN), static_cast<short int>(0)}},
+    m_name(name),
     t_worker(std::bind_front(&active_object_t::work, this))
 {}
 
@@ -262,8 +264,12 @@ void active_object_t::work() {
     }
 }
 
-active_object_ptr_t active_object_t::_implementation_detail_make_active_object() {
-    return std::shared_ptr<active_object_t>(new active_object_t());
+active_object_ptr_t active_object_t::_implementation_detail_make_active_object(std::string_view name) {
+    return std::shared_ptr<active_object_t>(new active_object_t(name));
+}
+
+std::string_view active_object_t::get_name() const {
+    return m_name;
 }
 
 } // namespace threesomeip::utils

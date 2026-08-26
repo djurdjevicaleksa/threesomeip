@@ -29,7 +29,8 @@
 /*===========*\
  * 3RD PARTY *
 \*===========*/
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/bin_to_hex.h>
 
 
 #if defined(EAGAIN) && defined(EWOULDBLOCK)
@@ -65,11 +66,16 @@ ud_socket_t::ud_socket_t(utils::active_object_ptr_t active_object) noexcept:
 
 void ud_socket_t::init() noexcept {
 
-    if (m_own_handle.has_value()) m_logger = spdlog::stdout_color_mt(std::filesystem::path(m_own_handle.value()).filename(), spdlog::color_mode::always);
-    else m_logger = spdlog::stdout_color_mt(std::format("unnamed_socket_{}", std::rand() % 1024));
+    auto sinks = spdlog::get(std::string{m_active_object->get_name()})->sinks();
+    m_logger = std::make_shared<spdlog::logger>("SOCK", sinks.begin(), sinks.end());
 
+#ifdef SOCKET_DEBUG
     m_logger->set_level(spdlog::level::debug);
-    m_logger->set_pattern("[%H:%M:%S.%e][%n][%l] %v");
+#else
+    m_logger->set_level(spdlog::level::off);
+#endif // SOCKET_DEBUG
+
+    spdlog::register_logger(m_logger);
 
     do {
         if (const int sock = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0); -1 == sock) {
@@ -198,7 +204,7 @@ auto ud_socket_t::send(
                 }
 
                 CASE_ENOENT_ECONNREFUSED: {
-                    m_logger->debug(std::format("The recipient ({}) is unreachable", recipient));
+                    m_logger->debug(std::format("The recipient is unreachable"));
                     return send_result_t::RECIPIENT_AWAY;
                 }
 
@@ -220,13 +226,10 @@ auto ud_socket_t::send(
         else break;
     }
 
-    m_logger->debug(
-        std::format(
-            "Sent {} bytes of data to {} [{}]",
-            data.size(),
-            recipient,
-            std::string_view(reinterpret_cast<const char*>(data.data()), data.size())
-        )
+    m_logger->debug("Sent {} bytes to {}:\n[{}]",
+        data.size(),
+        recipient,
+        spdlog::to_hex(data.begin(), data.end())
     );
     return send_result_t::SENT;
 }

@@ -13,6 +13,7 @@
 #include <functional>
 #include <unordered_map>
 #include <memory>
+#include <string>
 
 
 namespace threesomeip::utils {
@@ -36,12 +37,13 @@ public:
     [[nodiscard]] bool remove_fd_from_readable_watchlist(int);
     [[nodiscard]] bool remove_fd_from_writeable_watchlist(int);
 
+    [[nodiscard]] std::string_view get_name() const;
 
-    static active_object_ptr_t _implementation_detail_make_active_object();
+    static active_object_ptr_t _implementation_detail_make_active_object(std::string_view);
 
 private:
 
-    active_object_t();
+    active_object_t(std::string_view);
 
     void work();
 
@@ -56,13 +58,14 @@ private:
     std::unordered_map<int, Fn> m_fd_readable_job;
     std::unordered_map<int, Fn> m_fd_writeable_job;
 
+    std::string m_name;
     std::thread t_worker;
 };
 
 
 namespace active_object_factory {
-[[nodiscard]] inline active_object_ptr_t make_active_object() {
-    return active_object_t::_implementation_detail_make_active_object();
+[[nodiscard]] inline active_object_ptr_t make_active_object(std::string_view name) {
+    return active_object_t::_implementation_detail_make_active_object(name);
 }
 } // namespace active_object_factory
 
