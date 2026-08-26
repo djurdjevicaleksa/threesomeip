@@ -20,6 +20,7 @@
 \*=============*/
 #include <comm_ipc.hpp>
 #include <udsocket.hpp>
+#include <active_object.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -37,17 +38,15 @@ class runtime_stub_t {
 public:
 
     runtime_stub_t(
+        utils::active_object_ptr_t active_object,
         const fs::path& sockets_path,
         std::string_view runtime_application_name
     ) noexcept;
 
 private:
 
-    // void handle_delayed_socket_response(
-    //     const threesomeip::ipc::send_result_t result,
-    //     const threesomeip::ipc::socket_handle_t& recipient,
-    //     const std::span<const std::byte> data
-    // ) noexcept;
+    using service_id_t = uint16_t;
+    using application_id_t = uint16_t;
 
     void handle_on_receive(
         ipc::ud_socket_t& self,
@@ -56,15 +55,6 @@ private:
     ) noexcept;
 
     std::string_view message_type_name(ipc::types::message_type_t type) const;
-
-    ipc::types::socket_handle_t m_own_socket_handle;
-    ipc::ud_socket_t m_socket;
-
-    std::shared_ptr<spdlog::logger> m_logger;
-
-
-    using service_id_t = uint16_t;
-    using application_id_t = uint16_t;
 
     struct application_entry_t {
         application_id_t app_id;
@@ -91,6 +81,12 @@ private:
             return h;
         }
     };
+
+    utils::active_object_ptr_t m_active_object;
+    ipc::types::socket_handle_t m_own_socket_handle;
+    ipc::ud_socket_t m_socket;
+
+    std::shared_ptr<spdlog::logger> m_logger;
 
     std::unordered_map<ipc::types::socket_handle_t, application_entry_t> m_applications;
     std::unordered_map<service_id_t, ipc::types::socket_handle_t> m_service_to_owner;

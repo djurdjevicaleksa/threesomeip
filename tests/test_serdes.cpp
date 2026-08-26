@@ -8,7 +8,6 @@
 #include <span>
 #include <string>
 #include <algorithm>
-#include <iostream>
 
 /*=============*\
  * APPLICATION *

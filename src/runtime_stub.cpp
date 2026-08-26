@@ -4,7 +4,6 @@
 #include <string>
 #include <format>
 #include <functional>
-#include <iostream>
 #include <tuple>
 #include <ranges>
 
@@ -27,9 +26,10 @@ namespace fs = std::filesystem;
 namespace threesomeip::runtime {
 using namespace threesomeip;
 
-runtime_stub_t::runtime_stub_t(const fs::path& sockets_path, std::string_view runtime_application_name) noexcept:
+runtime_stub_t::runtime_stub_t(utils::active_object_ptr_t active_object, const fs::path& sockets_path, std::string_view runtime_application_name) noexcept:
+    m_active_object(active_object),
     m_own_socket_handle((sockets_path / std::format("{}.sock", runtime_application_name)).string()),
-    m_socket(m_own_socket_handle, std::bind_front(&runtime_stub_t::handle_on_receive, this)),
+    m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_stub_t::handle_on_receive, this)),
     m_logger(spdlog::stdout_color_mt("RUNTIME", spdlog::color_mode::always)) {
         m_logger->set_level(spdlog::level::debug);
         m_logger->set_pattern("[%H:%M:%S.%e][%n][%l] %v");

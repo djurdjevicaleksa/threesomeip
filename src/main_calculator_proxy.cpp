@@ -36,6 +36,7 @@
 #include <runtime_proxy.hpp>
 #include <calculator_proxy.hpp>
 #include <configuration.hpp>
+#include <active_object.hpp>
 
 
 using namespace ftxui;
@@ -88,8 +89,11 @@ int main() {
     std::signal(SIGINT,  signal_handler);
     std::signal(SIGTERM, signal_handler);
 
+    auto active_object = utils::active_object_factory::make_active_object();
+
     // --- runtime + proxy setup -------------------------------------------
     threesomeip::runtime::runtime_proxy_t runtime_proxy{
+        active_object,
         "/home/adjurdjevic/Desktop/threesomeip/ipc_sockets",
         "calculator_proxy",
         uint16_t{1},

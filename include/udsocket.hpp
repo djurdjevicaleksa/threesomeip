@@ -46,19 +46,12 @@ public:
     using DelayedResultCallback = std::function<void(const send_result_t result, const types::socket_handle_t& recipient, const std::span<const std::byte> data)>;
     using ReceiveCallback = std::function<void(ud_socket_t& self, const types::socket_handle_t& sender, const std::span<const std::byte> data)>;
 
-    struct pending_message_t {
-        types::socket_handle_t recipient;
-        std::vector<std::byte> data;
-        size_t bytes_already_written; // For future SOCK_STREAM support
-        DelayedResultCallback on_delayed_result;
-    };
-
 
     ud_socket_t(
         utils::active_object_ptr_t active_object,
-        const types::socket_handle_t& self,
+        const types::socket_handle_t& own_handle,
         std::optional<ReceiveCallback> on_receive
-    ) noexcept;
+    );
 
     ud_socket_t(utils::active_object_ptr_t active_object) noexcept;
 
@@ -70,32 +63,32 @@ public:
         std::optional<DelayedResultCallback> on_delayed_result
     ) noexcept;
 
+    struct pending_message_t {
+        types::socket_handle_t recipient;
+        std::vector<std::byte> data;
+        size_t bytes_already_written; // For future SOCK_STREAM support
+        DelayedResultCallback on_delayed_result;
+    };
+
 private:
 
     void init() noexcept;
-
-    bool receive();
-
-    void serve();
-
-    bool retry_send();
 
     void on_alive() override;
 
     void on_dead() override;
 
+    void drain_received_messages();
+
+    void drain_retriable_messages();
 
     utils::active_object_ptr_t m_active_object;
 
-    int m_ud_socket_fd;
+    int m_socketfd;
 
-    int m_wakeup_fd; // Used for reapplying the fdpoll_mask
-    int m_shutdown_fd;
-
-    const std::optional<const types::socket_handle_t> m_self;
+    const std::optional<const types::socket_handle_t> m_own_handle;
     const std::optional<ReceiveCallback> m_on_receive;
 
-    std::thread t_worker;
     std::mutex m_mutex;
 
     std::queue<pending_message_t> m_pending_messages;

@@ -12,6 +12,8 @@
 #include <atomic>
 #include <memory>
 #include <cassert>
+#include <cstdlib>
+#include <mutex>
 
 /*=============*\
  * APPLICATION *
@@ -26,86 +28,39 @@ class timer_handle_t: public std::enable_shared_from_this<timer_handle_t> {
 public:
 
     bool start() {
-        auto expected_state = timer_state_t::DISARMED;
-        if (!m_state.compare_exchange_strong(
-            expected_state,
-            timer_state_t::ARMED,
-            std::memory_order_acq_rel,
-            std::memory_order_acquire
-        )) return false;
-
-        auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(m_duration);
-        auto s = std::chrono::duration_cast<std::chrono::seconds>(ns);
-        ns -= s;
-
-        itimerspec read_spec{0};
-        timerfd_gettime(m_timerfd, &read_spec);
-        read_spec.it_value = {s.count(), ns.count()};
-        timerfd_settime(m_timerfd, 0, &read_spec, nullptr);
-
-        m_active_object->add_fd_to_readable_watchlist(m_timerfd, m_callback);
-
-        return true;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return this->_start_impl();
     }
 
     bool pause() {
-        if (m_state.load(std::memory_order_acquire) != timer_state_t::ARMED) return false;
-
-        itimerspec read_spec{0};
-        timerfd_gettime(m_timerfd, &read_spec);
-
-        m_paused_timespec = read_spec.it_value;
-
-        read_spec.it_value = {0, 0};
-        timerfd_settime(m_timerfd, 0, &read_spec, nullptr);
-
-        m_state.store(timer_state_t::PAUSED, std::memory_order_release);
-        return true;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return this->_pause_impl();
     }
 
     bool resume() {
-        if (m_state.load(std::memory_order_acquire) != timer_state_t::PAUSED) return false;
-
-        itimerspec read_spec{0};
-        timerfd_gettime(m_timerfd, &read_spec);
-        read_spec.it_value = m_paused_timespec;
-        timerfd_settime(m_timerfd, 0, &read_spec, nullptr);
-
-        m_state.store(timer_state_t::ARMED, std::memory_order_release);
-        return true;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return this->_resume_impl();
     }
 
     bool stop() {
-        const auto current_state = m_state.load(std::memory_order_acquire);
-        if (current_state != timer_state_t::ARMED && current_state != timer_state_t::PAUSED) return false;
-
-        itimerspec read_spec{0};
-        timerfd_gettime(m_timerfd, &read_spec);
-        read_spec.it_value = {0, 0};
-        timerfd_settime(m_timerfd, 0, &read_spec, nullptr);
-
-        m_active_object->remove_fd_from_readable_watchlist(m_timerfd);
-        m_state.store(timer_state_t::STOPPED, std::memory_order_release);
-
-        return true;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return this->_stop_impl();
     }
 
     bool restart() {
-        if (m_state.load(std::memory_order_acquire) == timer_state_t::DISARMED) return false;
-        m_state.store(timer_state_t::DISARMED, std::memory_order_release);
-        return this->start();
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return this->_restart_impl();
     }
 
-    /* used when a timer is no longer needed and the user wants to remove its fd from the active object by calling stop() */
-    bool is_running() const {
-        const auto current_state = m_state.load(std::memory_order_acquire);
-        return (current_state == timer_state_t::ARMED) || (current_state == timer_state_t::PAUSED);
+    template<typename Rep, typename Period>
+    bool reschedule(std::chrono::duration<Rep, Period> new_duration) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return this->_reschedule_impl<Rep, Period>(new_duration);
     }
 
     ~timer_handle_t() {
-        if (this->is_running()) {
-            this->stop();
-        }
+        this->stop();
+        (void) close(m_fd);
     }
 
 
@@ -119,7 +74,6 @@ public:
     /*
         FACTORY MEMBER FUNCTIONS
     */
-
     template<typename Rep, typename Period>
     static auto _implementation_detail_make_oneshot(active_object_ptr_t active_object, std::chrono::duration<Rep, Period> duration, const active_object_t::Fn& callback) {
         auto timer{std::shared_ptr<timer_handle_t>(new timer_handle_t{active_object, duration, true})};
@@ -152,48 +106,131 @@ public:
 
 private:
 
+    bool _start_impl() {
+        if (m_state == timer_state_t::DISARMED) {
+            (void) m_active_object->add_fd_to_readable_watchlist(m_fd, m_callback);
+
+            m_current_timer_spec.it_value = m_current_timer_spec.it_interval;
+            timerfd_settime(m_fd, 0, &m_current_timer_spec, nullptr);
+            m_state = timer_state_t::ARMED;
+            return true;
+        }
+        else return false;
+    }
+
+    bool _pause_impl() {
+        if (m_state == timer_state_t::ARMED) {
+            timerfd_gettime(m_fd, &m_current_timer_spec);
+
+            itimerspec paused_spec{
+                .it_interval{m_current_timer_spec.it_interval},
+                .it_value{0, 0}
+            };
+            timerfd_settime(m_fd, 0, &paused_spec, nullptr);
+
+            m_state = timer_state_t::PAUSED;
+            return true;
+        }
+        else return false;
+    }
+
+    bool _resume_impl() {
+        if (m_state == timer_state_t::PAUSED) {
+            timerfd_settime(m_fd, 0, &m_current_timer_spec, nullptr);
+            m_state = timer_state_t::ARMED;
+            return true;
+        }
+        else return false;
+    }
+
+    bool _stop_impl() {
+        if (m_state == timer_state_t::ARMED || m_state == timer_state_t::PAUSED) {
+            (void) m_active_object->remove_fd_from_readable_watchlist(m_fd);
+
+            m_current_timer_spec.it_value = {0, 0};
+            timerfd_settime(m_fd, 0, &m_current_timer_spec, nullptr);
+            m_state = timer_state_t::STOPPED;
+            return true;
+        }
+        else return false;
+    }
+
+    bool _restart_impl() {
+        /* enforce start() for fresh timers and restart() for others; mainly expired, stopped, paused */
+        if (m_state != timer_state_t::DISARMED) {
+            /* could be removed from the watch list here but would immediately get re-added */
+            /* relying on the fact that adding fds to the active objects is idempotent */
+            m_state = timer_state_t::DISARMED;
+            return this->_start_impl();
+        }
+        else return false;
+    }
+
+    template<typename Rep, typename Period>
+    bool _reschedule_impl(std::chrono::duration<Rep, Period> new_duration) {
+        if (new_duration != m_duration) {
+            /* any state allowed */
+            (void) this->_stop_impl();
+
+            m_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(new_duration);
+
+            auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(m_duration);
+            auto s = std::chrono::duration_cast<std::chrono::seconds>(ns);
+            ns -= s;
+
+            m_current_timer_spec.it_interval = {s.count(), ns.count()};
+            timerfd_settime(m_fd, 0, &m_current_timer_spec, nullptr);
+            m_state = timer_state_t::DISARMED;
+
+            return true;
+        }
+        /* reschedule will take place; we either do stuff or not, outcome the same, thats why theres 2 'true' */
+        else return true;
+    }
+
     static active_object_t::Fn make_callback(std::weak_ptr<timer_handle_t> weak, active_object_t::Fn cb) {
         return [weak = std::move(weak), cb = std::move(cb)] -> void {
+            /* check if the callback is running after the timer was destroyed */
             auto self = weak.lock();
             if (!self) return;
 
+            std::unique_lock<std::mutex> lock(self->m_mutex);
             if (self->m_oneshot) {
-                self->m_state.store(timer_state_t::EXPIRED, std::memory_order_release);
+                (void) self->m_active_object->remove_fd_from_readable_watchlist(self->m_fd);
+                self->m_state = timer_state_t::EXPIRED;
             }
 
             uint64_t drain{0};
-            (void) read(self->m_timerfd, &drain, sizeof(drain));
+            (void) read(self->m_fd, &drain, sizeof(drain));
 
+            lock.unlock();
             if (cb) [[likely]] cb();
-
-            if (self->m_oneshot) {
-                self->m_active_object->remove_fd_from_readable_watchlist(self->m_timerfd);
-            }
         };
     }
 
     template<typename Rep, typename Period>
     timer_handle_t(active_object_ptr_t active_object, std::chrono::duration<Rep, Period> duration, bool oneshot):
         m_active_object(active_object),
-        m_duration(duration),
+        m_fd(-1),
         m_oneshot(oneshot),
+        m_duration(std::chrono::duration_cast<std::chrono::nanoseconds>(duration)),
         m_state(timer_state_t::DISARMED)
     {
+        /* create the timerfd */
         if (int timerfd = timerfd_create(CLOCK_BOOTTIME, TFD_CLOEXEC); timerfd == -1) {
             assert(false && "Could not create a timerfd.");
         }
-        else m_timerfd = timerfd;
-
+        else m_fd = timerfd;
 
         auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(m_duration);
         auto s = std::chrono::duration_cast<std::chrono::seconds>(ns);
         ns -= s;
 
-        itimerspec initial_timer_spec{
+        m_current_timer_spec = {
             .it_interval{m_oneshot? timespec{0, 0} : timespec{s.count(), ns.count()}},
             .it_value{0, 0}
         };
-        timerfd_settime(m_timerfd, 0, &initial_timer_spec, nullptr);
+        timerfd_settime(m_fd, 0, &m_current_timer_spec, nullptr);
     }
 
     enum class timer_state_t {
@@ -207,12 +244,15 @@ private:
 
     active_object_ptr_t m_active_object;
 
-    int m_timerfd;
-    const std::chrono::nanoseconds m_duration;
+    int m_fd;
     const bool m_oneshot;
+    std::chrono::nanoseconds m_duration;
 
+    itimerspec m_current_timer_spec;
     timespec m_paused_timespec;
-    std::atomic<timer_state_t> m_state;
+
+    timer_state_t m_state;
+    std::mutex m_mutex;
 
     active_object_t::Fn m_callback;
 };

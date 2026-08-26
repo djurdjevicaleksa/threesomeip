@@ -18,6 +18,7 @@
 \*=============*/
 #include <configuration.hpp>
 #include <udsocket.hpp>
+#include <active_object.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -36,6 +37,7 @@ public:
     using MessageReceivedCallback = std::function<void(std::span<const std::byte>)>;
 
     runtime_proxy_t(
+        utils::active_object_ptr_t active_object,
         const fs::path& sockets_path,
         std::string_view app_name,
         uint16_t app_id,
@@ -75,6 +77,7 @@ private:
     ) noexcept;
 
 
+    utils::active_object_ptr_t m_active_object;
     const std::string m_app_name;
     const uint16_t m_app_id;
 

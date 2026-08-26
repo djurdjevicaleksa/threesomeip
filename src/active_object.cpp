@@ -9,6 +9,7 @@
 #include <mutex>
 #include <thread>
 #include <memory>
+#include <cstdlib>
 
 /*=============*\
  * APPLICATION *
@@ -39,22 +40,29 @@ active_object_t::~active_object_t() {
     if (t_worker.joinable()) {
         t_worker.join();
     }
+
+    close(m_external_stimuli_eventfd);
 }
 
-void active_object_t::add_to_todo_list(Fn job) {
+bool active_object_t::add_to_todo_list(Fn job) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (f_terminate) return false;
+
         m_jobs.emplace(std::move(job));
 
         /* wake the thread */
         uint64_t flag{1};
         (void) write(m_external_stimuli_eventfd, &flag, sizeof(flag));
     }
+    return true;
 }
 
 bool active_object_t::add_fd_to_readable_watchlist(int fd, Fn callback) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (f_terminate) return false;
+
         bool notify = false;
 
         auto it = std::ranges::find_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
@@ -90,6 +98,8 @@ bool active_object_t::add_fd_to_readable_watchlist(int fd, Fn callback) {
 bool active_object_t::add_fd_to_writeable_watchlist(int fd, Fn callback) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (f_terminate) return false;
+
         bool notify = false;
 
         auto it = std::ranges::find_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
@@ -125,6 +135,7 @@ bool active_object_t::add_fd_to_writeable_watchlist(int fd, Fn callback) {
 bool active_object_t::remove_fd_from_readable_watchlist(int fd) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (f_terminate) return false;
 
         auto it = std::ranges::find_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
         if (it == m_polled_fds.end()) {
@@ -156,6 +167,7 @@ bool active_object_t::remove_fd_from_readable_watchlist(int fd) {
 bool active_object_t::remove_fd_from_writeable_watchlist(int fd) {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (f_terminate) return false;
 
         auto it = std::ranges::find_if(m_polled_fds, [fd] (const pollfd& pollable) { return pollable.fd == fd; });
         if (it == m_polled_fds.end()) {
@@ -224,7 +236,7 @@ void active_object_t::work() {
         );
 
         std::ranges::for_each(polled_fds_snapshot
-            | std::views::filter([this] (const pollfd& polled_fd) { return (polled_fd.revents & POLLOUT) && (polled_fd.fd != m_external_stimuli_eventfd); }),
+            | std::views::filter([this] (const pollfd& polled_fd) { return (polled_fd.revents & POLLOUT); }),
 
             [this, &lock] (const pollfd& writeable_polled_fd) {
                 if (m_fd_writeable_job.contains(writeable_polled_fd.fd) && m_fd_writeable_job.at(writeable_polled_fd.fd)) {

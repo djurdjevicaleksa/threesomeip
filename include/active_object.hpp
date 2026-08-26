@@ -28,21 +28,22 @@ public:
 
     ~active_object_t();
 
-    void add_to_todo_list(Fn);
+    [[nodiscard]] bool add_to_todo_list(Fn);
 
-    bool add_fd_to_readable_watchlist(int, Fn);
-    bool add_fd_to_writeable_watchlist(int, Fn);
+    [[nodiscard]] bool add_fd_to_readable_watchlist(int, Fn);
+    [[nodiscard]] bool add_fd_to_writeable_watchlist(int, Fn);
 
-    bool remove_fd_from_readable_watchlist(int);
-    bool remove_fd_from_writeable_watchlist(int);
+    [[nodiscard]] bool remove_fd_from_readable_watchlist(int);
+    [[nodiscard]] bool remove_fd_from_writeable_watchlist(int);
 
-    void work();
 
     static active_object_ptr_t _implementation_detail_make_active_object();
 
 private:
 
     active_object_t();
+
+    void work();
 
     bool f_terminate;
     std::mutex m_mutex;
@@ -60,7 +61,7 @@ private:
 
 
 namespace active_object_factory {
-inline active_object_ptr_t make_active_object() {
+[[nodiscard]] inline active_object_ptr_t make_active_object() {
     return active_object_t::_implementation_detail_make_active_object();
 }
 } // namespace active_object_factory
