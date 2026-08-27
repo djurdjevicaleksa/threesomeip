@@ -110,7 +110,7 @@ protected:
 
                         response_header.message_type = message_type_t::RESPONSE;
                         response_header.return_code = static_cast<uint8>(return_code_t::E_OK);
-                        response_header.length = 8 + return_value_size;
+                        response_header.length = static_cast<uint32>(8 + return_value_size);
                         (void) someip::serdes::serialize(someip_message_buffer.data(), response_header);
 
                         someip_message_view = std::span{someip_message_buffer.data(), someip_header_length + return_value_size};
@@ -131,7 +131,7 @@ protected:
 
                         response_header.message_type = message_type_t::RESPONSE;
                         response_header.return_code = static_cast<uint8>(return_code_t::E_OK);
-                        response_header.length = 8 + return_value_size;
+                        response_header.length = static_cast<uint32>(8 + return_value_size);
                         (void) someip::serdes::serialize(someip_message_buffer.data(), response_header);
 
                         someip_message_view = std::span{someip_message_buffer.data(), someip_header_length + return_value_size};

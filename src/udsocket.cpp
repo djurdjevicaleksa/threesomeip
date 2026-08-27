@@ -125,7 +125,7 @@ void ud_socket_t::init() noexcept {
             break;
         }
         m_logger->debug("Bound");
-        m_active_object->add_fd_to_readable_watchlist(m_socketfd, std::bind_front(&ud_socket_t::drain_received_messages, this));
+        (void) m_active_object->add_fd_to_readable_watchlist(m_socketfd, std::bind_front(&ud_socket_t::drain_received_messages, this));
 
         this->to_alive();
         return;
@@ -206,7 +206,7 @@ auto ud_socket_t::send(
                     );
 
                     /* Register for writeable notifications */
-                    m_active_object->add_fd_to_writeable_watchlist(m_socketfd, std::bind_front(&ud_socket_t::drain_retriable_messages, this));
+                    (void) m_active_object->add_fd_to_writeable_watchlist(m_socketfd, std::bind_front(&ud_socket_t::drain_retriable_messages, this));
                     return send_result_t::DELAYED_RESULT;
                 }
 

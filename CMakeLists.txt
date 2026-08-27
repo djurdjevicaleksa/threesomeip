@@ -13,19 +13,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 
-# Global configuration
-add_compile_definitions(
-    SOCKET_DEBUG
-    RUNTIME_COMM_DEBUG
-)
-
-
-
 # Build dependencies
 add_subdirectory(${spd})
 add_subdirectory(${gtest})
 add_subdirectory(${ftxui})
 
+
+# Global project configuration
+add_compile_definitions(
+    SOCKET_DEBUG
+    RUNTIME_COMM_DEBUG
+)
 
 # Compile the implementation first
 add_subdirectory(src)

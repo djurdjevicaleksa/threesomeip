@@ -88,6 +88,7 @@ runtime_proxy_t::runtime_proxy_t(
                                         m_reconnect_in_progress = false;
                                         if (reconnect_result == ipc::send_result_t::SENT) {
                                             m_runtime_online = true;
+                                            m_logger->debug("The runtime became online again");
                                         }
                                     }
                                 );
@@ -103,6 +104,9 @@ runtime_proxy_t::runtime_proxy_t(
 
                         /* same for both calls to this lambda */
                         case ipc::send_result_t::RECIPIENT_AWAY: {
+                            if (m_runtime_online) {
+                                m_logger->debug("The runtime went offline");
+                            }
                             m_runtime_online = false;
                             break;
                         }

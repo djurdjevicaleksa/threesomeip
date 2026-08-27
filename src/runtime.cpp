@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
 
     runtime::runtime_stub_t runtime{
         active_object,
-        "/home/adjurdjevic/Desktop/threesomeip/ipc_sockets",
+        "/home/lecq/Desktop/threesomeip/ipc_sockets",
         "runtime"
     };
 

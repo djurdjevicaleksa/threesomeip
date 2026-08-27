@@ -22,6 +22,7 @@
 #include <comm_ipc.hpp>
 #include <udsocket.hpp>
 #include <active_object.hpp>
+#include <timer.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -55,7 +56,10 @@ private:
         const std::span<const std::byte> data
     ) noexcept;
 
+    void evict_application(const ipc::types::socket_handle_t& socket_handle);
+
     std::string_view message_type_name(ipc::types::message_type_t type) const;
+
 
     struct application_entry_t {
         application_id_t app_id;
@@ -71,38 +75,18 @@ private:
         uint16_t session_id;    /* counter */
 
         bool operator==(const request_key_t&) const = default;
-    };
 
-    struct request_key_hash_t {
-        size_t operator()(const request_key_t& k) const {
-            size_t h = std::hash<uint16_t>{}(k.service_id);
-            h ^= std::hash<uint16_t>{}(k.method_id)  + 0x9e3779b9 + (h << 6) + (h >> 2);
-            h ^= std::hash<uint16_t>{}(k.client_id)  + 0x9e3779b9 + (h << 6) + (h >> 2);
-            h ^= std::hash<uint16_t>{}(k.session_id) + 0x9e3779b9 + (h << 6) + (h >> 2);
-            return h;
-        }
-    };
-
-    struct heartbeat_cache_t {
-        struct heartbeat_t {
-            ipc::types::socket_handle_t sender;
-            std::chrono::steady_clock::time_point timepoint;
+        struct hash {
+            size_t operator()(const request_key_t& k) const {
+                size_t h = std::hash<uint16_t>{}(k.service_id);
+                h ^= std::hash<uint16_t>{}(k.method_id)  + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<uint16_t>{}(k.client_id)  + 0x9e3779b9 + (h << 6) + (h >> 2);
+                h ^= std::hash<uint16_t>{}(k.session_id) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                return h;
+            }
         };
-
-        std::list<heartbeat_t> by_recency;
-        std::unordered_map<ipc::types::socket_handle_t, std::list<heartbeat_t>::iterator> lookup;
-
-        void add(const ipc::types::socket_handle_t& socket_handle) {
-            if (lookup.contains(socket_handle)) {
-                lookup.erase(socket_handle);
-                
-            }
-            else {
-
-            }
-
-        }
     };
+
 
     utils::active_object_ptr_t m_active_object;
     ipc::types::socket_handle_t m_own_socket_handle;
@@ -112,8 +96,21 @@ private:
 
     std::unordered_map<ipc::types::socket_handle_t, application_entry_t> m_socket_owner_app;
     std::unordered_map<service_id_t, ipc::types::socket_handle_t> m_service_owner_sock;
-    std::unordered_map<request_key_t, ipc::types::socket_handle_t, request_key_hash_t> m_pending_requests;
-    heartbeat_cache_t m_heartbeat_cache;
+    std::unordered_map<request_key_t, ipc::types::socket_handle_t, request_key_t::hash> m_pending_requests;
+
+
+    /*
+        heartbeat
+    */
+    struct heartbeat_t {
+        ipc::types::socket_handle_t sender;
+        std::chrono::steady_clock::time_point timepoint;
+    };
+
+    /* front is the least recent */
+    std::list<heartbeat_t> m_heartbeat_by_recency;
+    std::unordered_map<ipc::types::socket_handle_t, std::list<heartbeat_t>::iterator> m_heartbeat_lookup;
+    std::shared_ptr<utils::timer_handle_t> m_eviction_timer;
 };
 
 } // namespace threesomeip::runtime

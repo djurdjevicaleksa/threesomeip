@@ -52,6 +52,11 @@ public:
         return this->_restart_impl();
     }
 
+    bool is_running() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return (m_state == timer_state_t::ARMED) || (m_state == timer_state_t::PAUSED);
+    }
+
     template<typename Rep, typename Period>
     bool reschedule(std::chrono::duration<Rep, Period> new_duration) {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -252,7 +257,7 @@ private:
     timespec m_paused_timespec;
 
     timer_state_t m_state;
-    std::mutex m_mutex;
+    mutable std::mutex m_mutex;
 
     active_object_t::Fn m_callback;
 };

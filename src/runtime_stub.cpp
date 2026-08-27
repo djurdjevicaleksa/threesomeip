@@ -29,7 +29,36 @@ using namespace threesomeip;
 runtime_stub_t::runtime_stub_t(utils::active_object_ptr_t active_object, const fs::path& sockets_path, std::string_view runtime_application_name) noexcept:
     m_active_object(active_object),
     m_own_socket_handle((sockets_path / std::format("{}.sock", runtime_application_name)).string()),
-    m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_stub_t::handle_on_receive, this))
+    m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_stub_t::handle_on_receive, this)),
+    m_eviction_timer(
+        utils::timer_factory::make_periodic_timer(m_active_object, std::chrono::seconds(10), [this] () {
+            auto current_time = std::chrono::steady_clock::now();
+
+            /* apps are copied intentionally */
+            auto apps_to_evict = m_heartbeat_by_recency
+                | std::views::take_while(
+                    [current_time] (const heartbeat_t& ref) {
+                        return (current_time - ref.timepoint) >= std::chrono::seconds(10);
+                    }
+                )
+                | std::ranges::to<std::vector>();
+
+            assert(apps_to_evict.size() > 0);
+
+            for (const auto& app: apps_to_evict) {
+                m_logger->debug("Evicting {} due to inactivity", m_socket_owner_app.at(app.sender).app_name);
+                this->evict_application(app.sender);
+            }
+
+            if (m_heartbeat_by_recency.size() > 0) {
+                m_eviction_timer->reschedule(std::chrono::seconds(10) - (std::chrono::steady_clock::now() - m_heartbeat_by_recency.begin()->timepoint));
+                m_eviction_timer->start();
+            }
+            else {
+                m_eviction_timer->reschedule(std::chrono::seconds(10));
+            }
+        })
+    )
 {
     auto& sinks = spdlog::get(std::string{m_active_object->get_name()})->sinks();
     m_logger = std::make_shared<spdlog::logger>("RTStub", sinks.begin(), sinks.end());
@@ -59,9 +88,17 @@ void runtime_stub_t::handle_on_receive(
             that an app is registered but it never sent a heartbeat; effectively skipping the eviction check */
 
             const auto message = someip::serdes::deserialize<ipc::types::register_message_t>(payload_cursor);
-            m_socket_owner_app.emplace(sender, application_entry_t{message.app_id, message.app_name});
-            
+            m_socket_owner_app.emplace(sender, application_entry_t{message.app_id, message.app_name, {}, {}});
+
+            auto it = m_heartbeat_by_recency.emplace(m_heartbeat_by_recency.end(), sender, std::chrono::steady_clock::now());
+            m_heartbeat_lookup.emplace(sender, it);
+
             m_logger->info("{} registered with ID {}", m_socket_owner_app.at(sender).app_name, m_socket_owner_app.at(sender).app_id);
+
+            if (!m_eviction_timer->is_running()) {
+                m_eviction_timer->start();
+            }
+
             break;
         }
 
@@ -69,11 +106,12 @@ void runtime_stub_t::handle_on_receive(
             const auto message = someip::serdes::deserialize<ipc::types::unregister_message_t>(payload_cursor);
             m_logger->info("{} unregistered with ID {}", m_socket_owner_app.at(sender).app_name, m_socket_owner_app.at(sender).app_id);
 
-            for (const auto& service: m_socket_owner_app.at(sender).offered_services) {
-                m_service_owner_sock.erase(service.service_id);
+            if (m_heartbeat_by_recency.size() == 1) {
+                m_eviction_timer->reschedule(std::chrono::seconds(10));
             }
 
-            m_socket_owner_app.erase(sender);
+            this->evict_application(sender);
+
             break;
         }
 
@@ -182,8 +220,47 @@ void runtime_stub_t::handle_on_receive(
 
             break;
         }
+
+        case ipc::types::message_type_t::HEARTBEAT: {
+            /* application's first contact with the runtime is a successful heartbeat; runtime must skip this if thats the case */
+            if (!m_heartbeat_lookup.contains(sender)) break;
+
+            bool most_stale_heartbeat_changed = false;
+
+            /* if heartbeat received the list must have at least 1 element */
+            /* remove previous heartbeat */
+            if (m_heartbeat_lookup.at(sender) == m_heartbeat_by_recency.begin()) most_stale_heartbeat_changed = true;
+            m_heartbeat_by_recency.erase(m_heartbeat_lookup.at(sender));
+
+            /* add the new one */
+            auto it = m_heartbeat_by_recency.emplace(m_heartbeat_by_recency.end(), sender, std::chrono::steady_clock::now());
+            m_heartbeat_lookup.at(sender) = it;
+
+            if (most_stale_heartbeat_changed) {
+                /* reschedule timer */
+                m_eviction_timer->reschedule(std::chrono::seconds(10) - (std::chrono::steady_clock::now() - m_heartbeat_by_recency.begin()->timepoint));
+                m_eviction_timer->start();
+            }
+
+            break;
+        }
     }
 }
+
+/* socket_handle must not be passed from an internal data structure; its captured by reference */
+void runtime_stub_t::evict_application(const ipc::types::socket_handle_t& socket_handle) {
+    /* remove offered services */
+    for (const auto& service: m_socket_owner_app.at(socket_handle).offered_services) {
+        m_service_owner_sock.at(service.service_id);
+    }
+    /* remove application */
+    m_socket_owner_app.erase(socket_handle);
+
+    /* remove from heartbeat cache */
+    m_heartbeat_by_recency.erase(m_heartbeat_lookup.at(socket_handle));
+    m_heartbeat_lookup.erase(socket_handle);
+}
+
 
 std::string_view runtime_stub_t::message_type_name(ipc::types::message_type_t type) const {
     switch (type) {

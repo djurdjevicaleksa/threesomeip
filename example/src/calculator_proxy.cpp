@@ -43,7 +43,7 @@ std::future<float> calculator_proxy_t::add(float a, float b) {
             .service_id{SERVICE_ID},
             .method_id{ADD_METHOD_ID}
         },
-        .length{8 + arguments_size},
+        .length{static_cast<uint32>(8 + arguments_size)},
         .request_id{
             .client_id{m_runtime_proxy.get_id()},
             .session_id{m_session_counter}
@@ -143,7 +143,7 @@ std::future<void> calculator_proxy_t::set_precision(uint32_t precision) {
             .service_id{SERVICE_ID},
             .method_id{SET_PRECISION_SETTER_ID}
         },
-        .length{8 + arguments_size},
+        .length{static_cast<uint32>(8 + arguments_size)},
         .request_id{
             .client_id{m_runtime_proxy.get_id()},
             .session_id{m_session_counter}
