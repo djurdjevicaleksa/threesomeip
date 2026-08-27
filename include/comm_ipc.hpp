@@ -34,7 +34,8 @@ enum class message_type_t: uint8_t {
     UNREGISTER_APPLICATION,
     OFFER_SERVICE,
     REQUEST_SERVICE,
-    SEND
+    SEND,
+    HEARTBEAT
 };
 
 struct message_header_t {

@@ -55,40 +55,44 @@ void runtime_stub_t::handle_on_receive(
 
     switch (header.message_type) {
         case ipc::types::message_type_t::REGISTER_APPLICATION: {
+            /* all registered apps must immediately apply for heartbeat checking because it can happen
+            that an app is registered but it never sent a heartbeat; effectively skipping the eviction check */
+
             const auto message = someip::serdes::deserialize<ipc::types::register_message_t>(payload_cursor);
-            m_applications.emplace(sender, application_entry_t{message.app_id, message.app_name});
-            m_logger->info("{} registered with ID {}", m_applications.at(sender).app_name, m_applications.at(sender).app_id);
+            m_socket_owner_app.emplace(sender, application_entry_t{message.app_id, message.app_name});
+            
+            m_logger->info("{} registered with ID {}", m_socket_owner_app.at(sender).app_name, m_socket_owner_app.at(sender).app_id);
             break;
         }
 
         case ipc::types::message_type_t::UNREGISTER_APPLICATION: {
             const auto message = someip::serdes::deserialize<ipc::types::unregister_message_t>(payload_cursor);
-            m_logger->info("{} unregistered with ID {}", m_applications.at(sender).app_name, m_applications.at(sender).app_id);
+            m_logger->info("{} unregistered with ID {}", m_socket_owner_app.at(sender).app_name, m_socket_owner_app.at(sender).app_id);
 
-            for (const auto& service: m_applications.at(sender).offered_services) {
-                m_service_to_owner.erase(service.service_id);
+            for (const auto& service: m_socket_owner_app.at(sender).offered_services) {
+                m_service_owner_sock.erase(service.service_id);
             }
 
-            m_applications.erase(sender);
+            m_socket_owner_app.erase(sender);
             break;
         }
 
         case ipc::types::message_type_t::OFFER_SERVICE: {
             const auto message = someip::serdes::deserialize<ipc::types::offer_message_t>(payload_cursor);
-            m_applications.at(sender).offered_services = message;
+            m_socket_owner_app.at(sender).offered_services = message;
 
             std::ranges::for_each(message, [&] (const auto& service) {
-                m_service_to_owner.emplace(service.service_id, sender);
+                m_service_owner_sock.emplace(service.service_id, sender);
             });
 
-            if (m_applications.at(sender).offered_services.size()) {
-                m_logger->info("{} offers the following services:", m_applications.at(sender).app_name);
-                for (const auto service: m_applications.at(sender).offered_services) {
+            if (m_socket_owner_app.at(sender).offered_services.size()) {
+                m_logger->info("{} offers the following services:", m_socket_owner_app.at(sender).app_name);
+                for (const auto service: m_socket_owner_app.at(sender).offered_services) {
                     m_logger->info("Service {}, instance {}", service.service_id, service.instance_id);
                 }
             }
             else {
-                m_logger->info("{} does not offer any services", m_applications.at(sender).app_name);
+                m_logger->info("{} does not offer any services", m_socket_owner_app.at(sender).app_name);
             }
 
             break;
@@ -96,16 +100,16 @@ void runtime_stub_t::handle_on_receive(
 
         case ipc::types::message_type_t::REQUEST_SERVICE: {
             const auto message = someip::serdes::deserialize<ipc::types::request_message_t>(payload_cursor);
-            m_applications[sender].requested_services = message;
+            m_socket_owner_app[sender].requested_services = message;
 
-            if (m_applications.at(sender).requested_services.size()) {
-                m_logger->info("{} requests the following services:", m_applications.at(sender).app_name);
-                for (const auto service: m_applications.at(sender).requested_services) {
+            if (m_socket_owner_app.at(sender).requested_services.size()) {
+                m_logger->info("{} requests the following services:", m_socket_owner_app.at(sender).app_name);
+                for (const auto service: m_socket_owner_app.at(sender).requested_services) {
                     m_logger->info("Service {}, instance {}", service.service_id, service.instance_id);
                 }
             }
             else {
-                m_logger->info("{} does not request any services", m_applications.at(sender).app_name);
+                m_logger->info("{} does not request any services", m_socket_owner_app.at(sender).app_name);
             }
 
             break;
@@ -148,8 +152,8 @@ void runtime_stub_t::handle_on_receive(
             switch (someip_message_header.message_type) {
                 case someip::types::message_type_t::REQUEST: [[fallthrough]];
                 case someip::types::message_type_t::REQUEST_NO_RETURN: {
-                    auto it = m_service_to_owner.find(someip_message_header.message_id.service_id);
-                    if (it == m_service_to_owner.end()) {
+                    auto it = m_service_owner_sock.find(someip_message_header.message_id.service_id);
+                    if (it == m_service_owner_sock.end()) {
                         /* no such service; send reply */
                         m_logger->warn("Failed to send SOME/IP payload: no recipient with service {}", someip_message_header.message_id.service_id);
                         return;
@@ -174,7 +178,7 @@ void runtime_stub_t::handle_on_receive(
             }
 
             m_socket.send(recipient, std::span{message_buffer}.subspan(0, ipc_header_length + entire_someip_message.size()), std::nullopt);
-            m_logger->debug("Forwarded a SOME/IP payload to {}", m_applications.at(recipient).app_name);
+            m_logger->debug("Forwarded a SOME/IP payload to {}", m_socket_owner_app.at(recipient).app_name);
 
             break;
         }

@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cassert>
 #include <thread>
+#include <optional>
 
 /*=============*\
  * APPLICATION *
@@ -25,6 +26,8 @@
 #include <serdes/serialization.hpp>
 #include <serdes/someip_types.hpp>
 #include <comm_ipc.hpp>
+#include <timer.hpp>
+#include <async_chain.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -54,7 +57,80 @@ runtime_proxy_t::runtime_proxy_t(
     m_runtime_handle((sockets_path / std::format("{}.sock", runtime_name)).string()),
     m_offered_services(offered_services.begin(), offered_services.end()),
     m_requested_services(requested_services.begin(), requested_services.end()),
-    m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_proxy_t::handle_on_receive, this)) {
+    m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_proxy_t::handle_on_receive, this)),
+    m_runtime_online(false),
+    m_heartbeat(
+        utils::timer_factory::make_periodic_timer(
+            m_active_object,
+            std::chrono::seconds(3),
+            [this] () -> void {
+                std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
+                ipc::types::message_header_t message_header{
+                    .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
+                    .protocol_version{1},
+                    .message_type{ipc::types::message_type_t::HEARTBEAT},
+                    ._flags{someip::types::uint8{0}},
+                    ._request_id{someip::types::uint16{0}},
+                    ._reserved{someip::types::uint16{0}},
+                    .payload_length{static_cast<someip::types::uint16>(0)},
+                };
+                size_t header_length = someip::serdes::serialize(message_buffer.data(), message_header);
+
+                /* this lambda can run both synchronously and asynchronously */
+                const auto handleResult = [this] (const ipc::send_result_t result) {
+                    switch(result) {
+                        /* connect only when it was previously disconnected */
+                        case ipc::send_result_t::SENT: {
+                            if (!m_runtime_online && !m_reconnect_in_progress) {
+                                m_reconnect_in_progress = true;
+                                this->reconnect(
+                                    [this] (ipc::send_result_t reconnect_result) {
+                                        m_reconnect_in_progress = false;
+                                        if (reconnect_result == ipc::send_result_t::SENT) {
+                                            m_runtime_online = true;
+                                        }
+                                    }
+                                );
+                            }
+                            break;
+                        }
+
+                        /* can only happen on the first try */
+                        case ipc::send_result_t::DELAYED_RESULT: {
+                            /* do nothing, another call of this lambda will act accordingly */
+                            break;
+                        }
+
+                        /* same for both calls to this lambda */
+                        case ipc::send_result_t::RECIPIENT_AWAY: {
+                            m_runtime_online = false;
+                            break;
+                        }
+
+                        case ipc::send_result_t::SOCKET_DEAD: {
+                            /* assuming wont happen */
+                            break;
+                        }
+                    }
+                };
+
+                handleResult(
+                    m_socket.send(
+                        m_runtime_handle,
+                        std::span{message_buffer}.subspan(0, header_length),
+                        [handleResult] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) -> void {
+                            (void) recipient;
+                            (void) data;
+                            handleResult(result);
+                        }
+                    )
+                );
+
+                m_logger->debug("Heartbeat");
+            }
+        )
+    )
+{
 
     auto& sinks = spdlog::get(std::string{m_active_object->get_name()})->sinks();
     m_logger = std::make_shared<spdlog::logger>("RTProxy", sinks.begin(), sinks.end());
@@ -66,64 +142,26 @@ runtime_proxy_t::runtime_proxy_t(
     spdlog::register_logger(m_logger);
 
 
-    std::mutex _m;
-    std::condition_variable _cv;
-
-    /* returns if should sleep */
-    const auto single_request = [&] (std::function<ipc::send_result_t(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb)> request) -> bool {
-        bool callback_triggered{false};
-        ipc::send_result_t delayed_result{};
-
-        const ipc::send_result_t request_result = request(
-            [&] (const ipc::send_result_t result, [[maybe_unused]] const ipc::types::socket_handle_t& recipient, [[maybe_unused]] const std::span<const std::byte> data) {
-                {
-                    std::unique_lock<std::mutex> lock(_m);
-                    callback_triggered = true;
-                    delayed_result = result;
-                }
-                _cv.notify_all();
+    m_reconnect_in_progress = true;
+    this->reconnect(
+        [this] (ipc::send_result_t result) {
+            m_reconnect_in_progress = false;
+            if (result == ipc::send_result_t::SENT) {
+                m_runtime_online = true;
+                m_heartbeat->start();
             }
-        );
-
-        std::unique_lock<std::mutex> lock(_m);
-        switch (request_result) {
-            case ipc::send_result_t::DELAYED_RESULT: {
-                /* wait for callback */
-                _cv.wait(
-                    lock,
-                    [&] {
-                        return true == callback_triggered;
-                    }
-                );
-
-                switch (delayed_result) {
-                    case ipc::send_result_t::SENT: return false;
-                    case ipc::send_result_t::RECIPIENT_AWAY: return true;
-                    case ipc::send_result_t::SOCKET_DEAD: return true; /* here i will need to recover the socket */
-                    default: assert(false && "Unreachable code"); return true;
-                }
-            }
-
-            case ipc::send_result_t::RECIPIENT_AWAY: return true;
-            case ipc::send_result_t::SOCKET_DEAD: return true; /* here i will need to recover the socket */
-            default: return false;
         }
-    };
+    );
+}
 
+void runtime_proxy_t::reconnect(std::function<void(ipc::send_result_t)> on_success) {
+    using reconnect_chain_t = utils::async_chain_t<ipc::send_result_t, const ipc::types::socket_handle_t&, std::span<const std::byte>>;
 
-    /* step by step initialization */
-    while (true) {
-        if (   !single_request(std::bind_front(&runtime_proxy_t::register_application, this))
-            && !single_request(std::bind_front(&runtime_proxy_t::offer_services, this))
-            && !single_request(std::bind_front(&runtime_proxy_t::request_services, this))) {
-
-            break;
-        }
-        else {
-            /* apply backoff; simple for now */
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-        }
-    }
+    reconnect_chain_t::create(ipc::send_result_t::DELAYED_RESULT, ipc::send_result_t::SENT, std::move(on_success))
+        ->then(std::bind_front(&runtime_proxy_t::register_application, this))
+        ->then(std::bind_front(&runtime_proxy_t::offer_services, this))
+        ->then(std::bind_front(&runtime_proxy_t::request_services, this))
+    ->run();
 }
 
 ipc::send_result_t runtime_proxy_t::register_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
@@ -275,6 +313,9 @@ void runtime_proxy_t::register_message_listener(MessageReceivedCallback cb) {
 }
 
 void runtime_proxy_t::handle_on_receive(ipc::ud_socket_t& self, const ipc::types::socket_handle_t& sender, const std::span<const std::byte> data) noexcept {
+    (void) self;
+    (void) sender;
+
     constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
 
     std::byte* cursor{nullptr};

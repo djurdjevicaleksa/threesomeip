@@ -14,6 +14,7 @@
 #include <functional>
 #include <span>
 #include <cstddef>
+#include <list>
 
 /*=============*\
  * APPLICATION *
@@ -82,15 +83,37 @@ private:
         }
     };
 
+    struct heartbeat_cache_t {
+        struct heartbeat_t {
+            ipc::types::socket_handle_t sender;
+            std::chrono::steady_clock::time_point timepoint;
+        };
+
+        std::list<heartbeat_t> by_recency;
+        std::unordered_map<ipc::types::socket_handle_t, std::list<heartbeat_t>::iterator> lookup;
+
+        void add(const ipc::types::socket_handle_t& socket_handle) {
+            if (lookup.contains(socket_handle)) {
+                lookup.erase(socket_handle);
+                
+            }
+            else {
+
+            }
+
+        }
+    };
+
     utils::active_object_ptr_t m_active_object;
     ipc::types::socket_handle_t m_own_socket_handle;
     ipc::ud_socket_t m_socket;
 
     std::shared_ptr<spdlog::logger> m_logger;
 
-    std::unordered_map<ipc::types::socket_handle_t, application_entry_t> m_applications;
-    std::unordered_map<service_id_t, ipc::types::socket_handle_t> m_service_to_owner;
+    std::unordered_map<ipc::types::socket_handle_t, application_entry_t> m_socket_owner_app;
+    std::unordered_map<service_id_t, ipc::types::socket_handle_t> m_service_owner_sock;
     std::unordered_map<request_key_t, ipc::types::socket_handle_t, request_key_hash_t> m_pending_requests;
+    heartbeat_cache_t m_heartbeat_cache;
 };
 
 } // namespace threesomeip::runtime

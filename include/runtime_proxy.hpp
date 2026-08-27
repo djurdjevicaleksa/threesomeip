@@ -19,6 +19,7 @@
 #include <configuration.hpp>
 #include <udsocket.hpp>
 #include <active_object.hpp>
+#include <timer.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -65,11 +66,7 @@ public:
 
 private:
 
-    // void handle_delayed_socket_response(
-    //     const threesomeip::ipc::send_result_t result,
-    //     const threesomeip::ipc::socket_handle_t& recipient,
-    //     const std::span<const std::byte> data
-    // ) noexcept;
+    void reconnect(std::function<void(ipc::send_result_t)>);
 
     void handle_on_receive(
         ipc::ud_socket_t& self,
@@ -90,6 +87,9 @@ private:
     std::vector<MessageReceivedCallback> m_registered_listeners;
 
     ipc::ud_socket_t m_socket;
+    bool m_runtime_online;
+    bool m_reconnect_in_progress;
+    std::shared_ptr<utils::timer_handle_t> m_heartbeat;
 
     std::shared_ptr<spdlog::logger> m_logger;
 };
