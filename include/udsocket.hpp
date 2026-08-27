@@ -82,6 +82,9 @@ private:
 
     void drain_retriable_messages();
 
+    std::string socket_handle_to_basename(const types::socket_handle_t& handle) const;
+
+
     utils::active_object_ptr_t m_active_object;
 
     int m_socketfd;

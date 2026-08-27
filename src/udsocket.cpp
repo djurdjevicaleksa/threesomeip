@@ -16,8 +16,10 @@
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <filesystem>
-#include <format>
 #include <cstdlib>
+#include <algorithm>
+#include <ranges>
+#include <format>
 
 /*=============*\
  * APPLICATION *
@@ -30,7 +32,6 @@
  * 3RD PARTY *
 \*===========*/
 #include <spdlog/spdlog.h>
-#include <spdlog/fmt/bin_to_hex.h>
 
 
 #if defined(EAGAIN) && defined(EWOULDBLOCK)
@@ -66,38 +67,44 @@ ud_socket_t::ud_socket_t(utils::active_object_ptr_t active_object) noexcept:
 
 void ud_socket_t::init() noexcept {
 
-    auto sinks = spdlog::get(std::string{m_active_object->get_name()})->sinks();
-    m_logger = std::make_shared<spdlog::logger>("SOCK", sinks.begin(), sinks.end());
-
+    auto& sinks = spdlog::get(std::string{m_active_object->get_name()})->sinks();
+    if (m_own_handle.has_value()){
+        m_logger = std::make_shared<spdlog::logger>(
+            this->socket_handle_to_basename(m_own_handle.value()),
+            sinks.begin(), sinks.end()
+        );
+    }
+    else {
+        m_logger = std::make_shared<spdlog::logger>(std::format("ANONSOCK_{}", m_socketfd), sinks.begin(), sinks.end());
+    }
 #ifdef SOCKET_DEBUG
     m_logger->set_level(spdlog::level::debug);
 #else
     m_logger->set_level(spdlog::level::off);
 #endif // SOCKET_DEBUG
-
     spdlog::register_logger(m_logger);
+
 
     do {
         if (const int sock = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0); -1 == sock) {
             /* currently no issue which can arise is recoverable */
-            m_logger->info("Failed to open a socket");
+            m_logger->error("Failed to open a socket");
             break;
         }
         else m_socketfd = sock;
 
-        m_logger->info("Opened a socket");
+        m_logger->debug("Opened a socket");
 
         /* Set into non-blocking state */
         int flags = fcntl(m_socketfd, F_GETFL, 0);
         if (-1 == fcntl(m_socketfd, F_SETFL, flags | O_NONBLOCK)) {
-            m_logger->info("Failed to set to non-blocking mode");
+            m_logger->debug("Failed to set to non-blocking mode");
             break;
         }
 
         /* If its not named, it's done */
         if (!m_own_handle.has_value()) {
             this->to_alive();
-            m_logger->info("Initialized");
             return;
         }
 
@@ -114,10 +121,10 @@ void ud_socket_t::init() noexcept {
         (void) unlink(address.sun_path);
 
         if (-1 == bind(m_socketfd, reinterpret_cast<sockaddr*>(&address), sizeof(address))) {
-            m_logger->info("Failed to bind");
+            m_logger->error("Failed to bind");
             break;
         }
-        m_logger->info("Bound");
+        m_logger->debug("Bound");
         m_active_object->add_fd_to_readable_watchlist(m_socketfd, std::bind_front(&ud_socket_t::drain_received_messages, this));
 
         this->to_alive();
@@ -189,7 +196,7 @@ auto ud_socket_t::send(
         ) {
             switch (errno) {
                 CASE_EAGAIN_EWOULDBLOCK: {
-                    m_logger->debug("Socket kernel buffer full, will retry to send the message later");
+                    m_logger->warn("Socket kernel buffer full, will retry to send the message later");
 
                     m_pending_messages.emplace(
                         recipient,
@@ -204,7 +211,7 @@ auto ud_socket_t::send(
                 }
 
                 CASE_ENOENT_ECONNREFUSED: {
-                    m_logger->debug(std::format("The recipient is unreachable"));
+                    m_logger->debug("The recipient is unreachable");
                     return send_result_t::RECIPIENT_AWAY;
                 }
 
@@ -218,7 +225,7 @@ auto ud_socket_t::send(
                     this->to_dead();
                     lock.lock();
 
-                    m_logger->debug("Fatal error occurred, socket died");
+                    m_logger->error("Fatal error occurred, socket died");
                     return send_result_t::SOCKET_DEAD;
                 }
             }
@@ -226,10 +233,9 @@ auto ud_socket_t::send(
         else break;
     }
 
-    m_logger->debug("Sent {} bytes to {}:\n[{}]",
+    m_logger->debug("Sent {} bytes to {}",
         data.size(),
-        recipient,
-        spdlog::to_hex(data.begin(), data.end())
+        this->socket_handle_to_basename(recipient)
     );
     return send_result_t::SENT;
 }
@@ -255,7 +261,7 @@ void ud_socket_t::drain_retriable_messages() {
                 switch (errno) {
                     CASE_EAGAIN_EWOULDBLOCK: {
                         /* it became blocking again */
-                        m_logger->debug("Socket kernel buffer full while trying to retry, will retry again later");
+                        m_logger->warn("Socket kernel buffer full while trying to retry, will retry again later");
                         return false;
                     }
 
@@ -265,7 +271,10 @@ void ud_socket_t::drain_retriable_messages() {
                     }
 
                     CASE_ENOENT_ECONNREFUSED: {
-                        m_logger->debug(std::format("The recipient ({}) is unreachable during retrying", m_pending_messages.front().recipient));
+                        m_logger->warn(
+                            "Recipient {} is still unreachable. Discarding.",
+                            this->socket_handle_to_basename(m_pending_messages.front().recipient)
+                        );
 
                         if (m_pending_messages.front().on_delayed_result) {
                             const auto pending_message = std::move(m_pending_messages.front());
@@ -284,7 +293,7 @@ void ud_socket_t::drain_retriable_messages() {
 
                     default: {
                         /* exceptional case; unsupported */
-                        m_logger->debug("Fatal error occurred while retrying, socket died");
+                        m_logger->error("Fatal error occurred while retrying, socket died");
 
                         if (m_pending_messages.front().on_delayed_result) {
                             const auto pending_message = std::move(m_pending_messages.front());
@@ -310,12 +319,9 @@ void ud_socket_t::drain_retriable_messages() {
         }
 
         m_logger->debug(
-            std::format(
-                "Sent {} bytes of data to {} during the retry sequence [{}]",
-                m_pending_messages.front().data.size(),
-                m_pending_messages.front().recipient,
-                std::string_view(reinterpret_cast<const char*>(m_pending_messages.front().data.data()), m_pending_messages.front().data.size())
-            )
+            "Sent {} bytes of data to {} during the retry sequence",
+            m_pending_messages.front().data.size(),
+            this->socket_handle_to_basename(m_pending_messages.front().recipient)
         );
         if (m_pending_messages.front().on_delayed_result) {
             const auto pending_message = std::move(m_pending_messages.front());
@@ -383,7 +389,7 @@ void ud_socket_t::drain_received_messages() {
 
                     default: {
                         /* exceptional case; unsupported */
-                        m_logger->debug("Fatal error occurred while trying to read the buffer, socket died");
+                        m_logger->error("Fatal error occurred while trying to read the buffer, socket died");
                         this->to_dead();
                         return false;
                     }
@@ -395,11 +401,9 @@ void ud_socket_t::drain_received_messages() {
         const auto sender_handle = types::socket_handle_t{sender_address.sun_path};
 
         m_logger->debug(
-            std::format(
-                "Received {} bytes of data [{}]",
-                bytes_read,
-                std::string_view(reinterpret_cast<const char*>(buffer.data()), bytes_read)
-            )
+            "Received {} bytes from {}",
+            bytes_read,
+            this->socket_handle_to_basename(sender_handle)
         );
 
 
@@ -422,6 +426,10 @@ void ud_socket_t::drain_received_messages() {
 
     /* drain received messages */
     while (receiveSingleMessage()) {}
+}
+
+std::string ud_socket_t::socket_handle_to_basename(const types::socket_handle_t& handle) const {
+    return std::ranges::find_last(handle, '/') | std::views::drop(1) | std::ranges::to<std::string>();
 }
 
 } // namespace threesomeip::ipc

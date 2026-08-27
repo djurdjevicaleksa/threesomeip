@@ -29,6 +29,7 @@
 /*===========*\
  * 3RD PARTY *
 \*===========*/
+#include <spdlog/spdlog.h>
 
 
 namespace fs = std::filesystem;
@@ -54,6 +55,16 @@ runtime_proxy_t::runtime_proxy_t(
     m_offered_services(offered_services.begin(), offered_services.end()),
     m_requested_services(requested_services.begin(), requested_services.end()),
     m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_proxy_t::handle_on_receive, this)) {
+
+    auto& sinks = spdlog::get(std::string{m_active_object->get_name()})->sinks();
+    m_logger = std::make_shared<spdlog::logger>("RTProxy", sinks.begin(), sinks.end());
+#ifdef RUNTIME_COMM_DEBUG
+    m_logger->set_level(spdlog::level::debug);
+#else
+    m_logger->set_level(spdlog::level::off);
+#endif // RUNTIME_COMM_DEBUG
+    spdlog::register_logger(m_logger);
+
 
     std::mutex _m;
     std::condition_variable _cv;
@@ -142,6 +153,7 @@ ipc::send_result_t runtime_proxy_t::register_application(std::optional<ipc::ud_s
     };
     someip::serdes::serialize(message_buffer.data(), message_header);
 
+    m_logger->info("Announcing application registration");
     return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
@@ -172,6 +184,7 @@ ipc::send_result_t runtime_proxy_t::unregister_application(std::optional<ipc::ud
     };
     someip::serdes::serialize(message_buffer.data(), message_header);
 
+    m_logger->info("Announcing application unregistration");
     return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
@@ -199,6 +212,7 @@ ipc::send_result_t runtime_proxy_t::offer_services(std::optional<ipc::ud_socket_
     };
     someip::serdes::serialize(message_buffer.data(), message_header);
 
+    m_logger->info("Announcing application's offered services");
     return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
@@ -227,6 +241,7 @@ ipc::send_result_t runtime_proxy_t::request_services(std::optional<ipc::ud_socke
     };
     someip::serdes::serialize(message_buffer.data(), message_header);
 
+    m_logger->info("Announcing application's required services");
     return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
 }
 
@@ -250,11 +265,13 @@ ipc::send_result_t runtime_proxy_t::send(std::span<const std::byte> someip_paylo
     /* copy the already serialized payload containing the someip header and someip payload into the buffer */
     std::ranges::copy(someip_payload, message_buffer.begin() + header_length);
 
+    m_logger->debug("Announcing application's intent to send a SOME/IP payload");
     return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, header_length + someip_payload.size()), std::move(delayed_cb));
 }
 
 void runtime_proxy_t::register_message_listener(MessageReceivedCallback cb) {
     m_registered_listeners.emplace_back(std::move(cb));
+    m_logger->info("A service or client has registered for message notifications");
 }
 
 void runtime_proxy_t::handle_on_receive(ipc::ud_socket_t& self, const ipc::types::socket_handle_t& sender, const std::span<const std::byte> data) noexcept {

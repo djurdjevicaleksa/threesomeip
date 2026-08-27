@@ -15,7 +15,7 @@ int main() {
     const std::string app_name{"calculator_stub"};
 
     auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    console_sink->set_pattern("[%H:%M:%S.%e][%n]%^[%l] %v%$");
+    console_sink->set_pattern("[%H:%M:%S.%e][" + app_name + "][%n]%^[%l] %v%$");
     console_sink->set_color(spdlog::level::info, console_sink->green);
     console_sink->set_color(spdlog::level::warn, console_sink->yellow);
     console_sink->set_color(spdlog::level::err, console_sink->red);

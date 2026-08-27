@@ -18,7 +18,7 @@
 /*===========*\
  * 3RD PARTY *
 \*===========*/
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 
 
 namespace fs = std::filesystem;
@@ -29,11 +29,17 @@ using namespace threesomeip;
 runtime_stub_t::runtime_stub_t(utils::active_object_ptr_t active_object, const fs::path& sockets_path, std::string_view runtime_application_name) noexcept:
     m_active_object(active_object),
     m_own_socket_handle((sockets_path / std::format("{}.sock", runtime_application_name)).string()),
-    m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_stub_t::handle_on_receive, this)),
-    m_logger(spdlog::stdout_color_mt("RUNTIME", spdlog::color_mode::always)) {
-        m_logger->set_level(spdlog::level::debug);
-        m_logger->set_pattern("[%H:%M:%S.%e][%n][%l] %v");
-    }
+    m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_stub_t::handle_on_receive, this))
+{
+    auto& sinks = spdlog::get(std::string{m_active_object->get_name()})->sinks();
+    m_logger = std::make_shared<spdlog::logger>("RTStub", sinks.begin(), sinks.end());
+#ifdef RUNTIME_COMM_DEBUG
+    m_logger->set_level(spdlog::level::debug);
+#else
+    m_logger->set_level(spdlog::level::off);
+#endif // RUNTIME_COMM_DEBUG
+    spdlog::register_logger(m_logger);
+}
 
 void runtime_stub_t::handle_on_receive(
     ipc::ud_socket_t& self,
@@ -42,29 +48,24 @@ void runtime_stub_t::handle_on_receive(
 ) noexcept {
     (void) self;
 
-    m_logger->debug("Received {} bytes of data from {} .", data.size(), sender);
-
     std::byte* payload_cursor{nullptr};
     const auto header = someip::serdes::deserialize<ipc::types::message_header_t>(data.data(), &payload_cursor);
 
-    m_logger->debug("Start of frame: {}", std::string_view{header.start_of_frame});
-    m_logger->debug("Protocol version: {}", std::to_string(header.protocol_version));
-    m_logger->debug("Message type: {}", message_type_name(header.message_type));
-    m_logger->debug("Payload length: {}", std::to_string(header.payload_length));
+    /* TODO add header check */
 
     switch (header.message_type) {
         case ipc::types::message_type_t::REGISTER_APPLICATION: {
             const auto message = someip::serdes::deserialize<ipc::types::register_message_t>(payload_cursor);
-            m_logger->debug("Application registered: {} ({})", message.app_name, message.app_id);
             m_applications.emplace(sender, application_entry_t{message.app_id, message.app_name});
+            m_logger->info("{} registered with ID {}", m_applications.at(sender).app_name, m_applications.at(sender).app_id);
             break;
         }
 
         case ipc::types::message_type_t::UNREGISTER_APPLICATION: {
             const auto message = someip::serdes::deserialize<ipc::types::unregister_message_t>(payload_cursor);
-            m_logger->debug("Application unregistered: {} ({})", message.app_name, message.app_id);
+            m_logger->info("{} unregistered with ID {}", m_applications.at(sender).app_name, m_applications.at(sender).app_id);
 
-            for (const auto& service: m_applications[sender].offered_services) {
+            for (const auto& service: m_applications.at(sender).offered_services) {
                 m_service_to_owner.erase(service.service_id);
             }
 
@@ -74,31 +75,44 @@ void runtime_stub_t::handle_on_receive(
 
         case ipc::types::message_type_t::OFFER_SERVICE: {
             const auto message = someip::serdes::deserialize<ipc::types::offer_message_t>(payload_cursor);
-            m_logger->debug("Application {} offers the following services:", sender);
-            for (const auto service: message) {
-                m_logger->debug("Service {}, instance {}", service.service_id, service.instance_id);
-            }
-
-            m_applications[sender].offered_services = message;
+            m_applications.at(sender).offered_services = message;
 
             std::ranges::for_each(message, [&] (const auto& service) {
                 m_service_to_owner.emplace(service.service_id, sender);
             });
+
+            if (m_applications.at(sender).offered_services.size()) {
+                m_logger->info("{} offers the following services:", m_applications.at(sender).app_name);
+                for (const auto service: m_applications.at(sender).offered_services) {
+                    m_logger->info("Service {}, instance {}", service.service_id, service.instance_id);
+                }
+            }
+            else {
+                m_logger->info("{} does not offer any services", m_applications.at(sender).app_name);
+            }
+
             break;
         }
 
         case ipc::types::message_type_t::REQUEST_SERVICE: {
             const auto message = someip::serdes::deserialize<ipc::types::request_message_t>(payload_cursor);
-            m_logger->debug("Application {} requires the following services:", sender);
-            for (const auto service: message) {
-                m_logger->debug("Service {}, instance {}", service.service_id, service.instance_id);
-            }
             m_applications[sender].requested_services = message;
+
+            if (m_applications.at(sender).requested_services.size()) {
+                m_logger->info("{} requests the following services:", m_applications.at(sender).app_name);
+                for (const auto service: m_applications.at(sender).requested_services) {
+                    m_logger->info("Service {}, instance {}", service.service_id, service.instance_id);
+                }
+            }
+            else {
+                m_logger->info("{} does not request any services", m_applications.at(sender).app_name);
+            }
+
             break;
         }
 
         case ipc::types::message_type_t::SEND: {
-            m_logger->debug("Received SOME/IP payload to send.");
+            m_logger->debug("Received a SOME/IP payload meant for another application.");
 
             std::span<const std::byte> entire_someip_message{payload_cursor, header.payload_length};
             const auto someip_message_header = someip::serdes::deserialize<someip::types::message_header_t>(payload_cursor);
@@ -160,7 +174,7 @@ void runtime_stub_t::handle_on_receive(
             }
 
             m_socket.send(recipient, std::span{message_buffer}.subspan(0, ipc_header_length + entire_someip_message.size()), std::nullopt);
-            m_logger->debug("Successfully sent the SOME/IP payload to {}", recipient);
+            m_logger->debug("Forwarded a SOME/IP payload to {}", m_applications.at(recipient).app_name);
 
             break;
         }

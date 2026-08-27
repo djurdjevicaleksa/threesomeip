@@ -16,6 +16,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 # Global configuration
 add_compile_definitions(
     SOCKET_DEBUG
+    RUNTIME_COMM_DEBUG
 )
 
 

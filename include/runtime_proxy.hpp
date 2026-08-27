@@ -23,6 +23,7 @@
 /*===========*\
  * 3RD PARTY *
 \*===========*/
+#include <spdlog/spdlog.h>
 
 
 namespace fs = std::filesystem;
@@ -89,6 +90,8 @@ private:
     std::vector<MessageReceivedCallback> m_registered_listeners;
 
     ipc::ud_socket_t m_socket;
+
+    std::shared_ptr<spdlog::logger> m_logger;
 };
 
 } // namespace threesomeip::runtime
