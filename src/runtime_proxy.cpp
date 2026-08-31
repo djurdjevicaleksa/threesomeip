@@ -84,9 +84,9 @@ runtime_proxy_t::runtime_proxy_t(
                             if (!m_runtime_online && !m_reconnect_in_progress) {
                                 m_reconnect_in_progress = true;
                                 this->reconnect(
-                                    [this] (ipc::send_result_t reconnect_result) {
+                                    [this] (utils::step_status_t reconnect_result) {
                                         m_reconnect_in_progress = false;
-                                        if (reconnect_result == ipc::send_result_t::SENT) {
+                                        if (reconnect_result == utils::step_status_t::SUCCESS) {
                                             m_runtime_online = true;
                                             m_logger->debug("The runtime became online again");
                                         }
@@ -148,9 +148,9 @@ runtime_proxy_t::runtime_proxy_t(
 
     m_reconnect_in_progress = true;
     this->reconnect(
-        [this] (ipc::send_result_t result) {
+        [this] (utils::step_status_t result) {
             m_reconnect_in_progress = false;
-            if (result == ipc::send_result_t::SENT) {
+            if (result == utils::step_status_t::SUCCESS) {
                 m_runtime_online = true;
                 m_heartbeat->start();
             }
@@ -158,14 +158,43 @@ runtime_proxy_t::runtime_proxy_t(
     );
 }
 
-void runtime_proxy_t::reconnect(std::function<void(ipc::send_result_t)> on_success) {
-    using reconnect_chain_t = utils::async_chain_t<ipc::send_result_t, const ipc::types::socket_handle_t&, std::span<const std::byte>>;
+void runtime_proxy_t::reconnect(std::function<void(utils::step_status_t)> on_success) {
 
-    reconnect_chain_t::create(ipc::send_result_t::DELAYED_RESULT, ipc::send_result_t::SENT, std::move(on_success))
-        ->then(std::bind_front(&runtime_proxy_t::register_application, this))
-        ->then(std::bind_front(&runtime_proxy_t::offer_services, this))
-        ->then(std::bind_front(&runtime_proxy_t::request_services, this))
-    ->run();
+    utils::async_chain_t<>::create(std::move(on_success))
+        ->then([this] (auto delayed_callback) -> utils::step_status_t {
+            auto on_delayed = [delayed_callback] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
+                if (result == ipc::send_result_t::SENT) delayed_callback(utils::step_status_t::SUCCESS);
+                else delayed_callback(utils::step_status_t::FAILURE);
+            };
+            const auto immediate_result = this->register_application(std::move(on_delayed));
+
+            if (immediate_result == ipc::send_result_t::SENT) return utils::step_status_t::SUCCESS;
+            else if (immediate_result == ipc::send_result_t::DELAYED_RESULT) return utils::step_status_t::PENDING;
+            else return utils::step_status_t::FAILURE;
+        })
+        ->then([this] (auto delayed_callback) -> utils::step_status_t {
+            auto on_delayed = [delayed_callback] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
+                if (result == ipc::send_result_t::SENT) delayed_callback(utils::step_status_t::SUCCESS);
+                else delayed_callback(utils::step_status_t::FAILURE);
+            };
+            const auto immediate_result = this->offer_services(std::move(on_delayed));
+
+            if (immediate_result == ipc::send_result_t::SENT) return utils::step_status_t::SUCCESS;
+            else if (immediate_result == ipc::send_result_t::DELAYED_RESULT) return utils::step_status_t::PENDING;
+            else return utils::step_status_t::FAILURE;
+        })
+        ->then([this] (auto delayed_callback) -> utils::step_status_t {
+            auto on_delayed = [delayed_callback] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
+                if (result == ipc::send_result_t::SENT) delayed_callback(utils::step_status_t::SUCCESS);
+                else delayed_callback(utils::step_status_t::FAILURE);
+            };
+            const auto immediate_result = this->offer_services(std::move(on_delayed));
+
+            if (immediate_result == ipc::send_result_t::SENT) return utils::step_status_t::SUCCESS;
+            else if (immediate_result == ipc::send_result_t::DELAYED_RESULT) return utils::step_status_t::PENDING;
+            else return utils::step_status_t::FAILURE;
+        })
+        ->run();
 }
 
 ipc::send_result_t runtime_proxy_t::register_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {

@@ -29,7 +29,7 @@ int main() {
 
     runtime::runtime_proxy_t runtime_proxy{
         active_object,
-        "/home/adjurdjevic/Desktop/threesomeip/ipc_sockets",
+        "/home/lecq/Desktop/threesomeip/ipc_sockets",
         "calculator_stub",
         uint16_t{2},
         "runtime",

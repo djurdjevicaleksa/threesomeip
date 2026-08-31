@@ -20,6 +20,7 @@
 #include <udsocket.hpp>
 #include <active_object.hpp>
 #include <timer.hpp>
+#include <async_chain.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -66,7 +67,7 @@ public:
 
 private:
 
-    void reconnect(std::function<void(ipc::send_result_t)>);
+    void reconnect(std::function<void(utils::step_status_t)>);
 
     void handle_on_receive(
         ipc::ud_socket_t& self,

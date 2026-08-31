@@ -1,29 +1,37 @@
 #ifndef _ASYNC_CHAIN_HPP
 #define _ASYNC_CHAIN_HPP
 
-/*=====*\
- * C++ *
-\*=====*/
 #include <memory>
 #include <functional>
 #include <vector>
-#include <cstddef>
-#include <optional>
-
 
 namespace threesomeip::utils {
 
+enum class step_status_t {
+    SUCCESS,
+    PENDING,
+    FAILURE
+};
 
-template<typename ResultType, typename... Args>
-class async_chain_t: public std::enable_shared_from_this<async_chain_t<ResultType, Args...>> {
+template <typename Context = void>
+class async_chain_t;
+
+
+template <typename Context>
+class async_chain_t: public std::enable_shared_from_this<async_chain_t<Context>> {
 public:
-    using Pointer = std::shared_ptr<async_chain_t>;
-    using DelayedCallback = std::function<void(ResultType, Args...)>;
-    using StepFunction = std::function<ResultType(std::optional<DelayedCallback>)>;
-    using ResultCallback = std::function<void(ResultType)>;
+    using Pointer = std::shared_ptr<async_chain_t<Context>>;
+    using ChainCallback = std::function<void(step_status_t)>;
+    using ResultCallback = std::function<void(step_status_t, std::shared_ptr<Context>)>;
+    using StepFunction = std::function<step_status_t(std::shared_ptr<Context>, ChainCallback)>;
 
-    static Pointer create(ResultType pending_sentinel, ResultType success_sentinel, ResultCallback on_done) {
-        return Pointer(new async_chain_t(pending_sentinel, success_sentinel, std::move(on_done)));
+
+    template <typename... ContextArgs>
+    static Pointer create(ResultCallback on_done, ContextArgs&&... args) {
+        return Pointer(new async_chain_t(
+            std::move(on_done),
+            std::make_shared<Context>(std::forward<ContextArgs>(args)...)
+        ));
     }
 
     async_chain_t* then(StepFunction step) {
@@ -31,44 +39,73 @@ public:
         return this;
     }
 
-    void run() {
-        this->run_step(0);
-    }
+    void run() { this->run_step(0); }
 
 private:
-
-    async_chain_t(ResultType pending_sentinel, ResultType success_sentinel, ResultCallback on_done):
-        m_pending_sentinel(pending_sentinel),
-        m_success_sentinel(success_sentinel),
-        m_on_done(std::move(on_done))
-    {}
+    async_chain_t(ResultCallback on_done, std::shared_ptr<Context> context)
+        : m_on_done(std::move(on_done)), m_context(std::move(context)) {}
 
     void run_step(size_t index) {
         if (index == m_steps.size()) {
-            m_on_done(m_success_sentinel);
+            m_on_done(step_status_t::SUCCESS, m_context);
             return;
         }
 
         auto self = this->shared_from_this();
-        auto handle_next = [self, index] (ResultType result) {
-            if (result == self->m_success_sentinel) self->run_step(index + 1);
-            else self->m_on_done(result);
+        auto delayed_cb = [self, index](step_status_t result) {
+            if (result == step_status_t::SUCCESS) self->run_step(index + 1);
+            else self->m_on_done(step_status_t::FAILURE, self->m_context);
         };
 
-        const ResultType in_between_result = m_steps[index](
-            [handle_next] (ResultType result, Args...) {
-                handle_next(result);
-            }
-        );
-
-        if (in_between_result != m_pending_sentinel) {
-            handle_next(in_between_result);
-        }
+        step_status_t immediate_result = m_steps[index](m_context, delayed_cb);
+        if (immediate_result != step_status_t::PENDING) delayed_cb(immediate_result);
     }
 
+    ResultCallback m_on_done;
+    std::shared_ptr<Context> m_context;
+    std::vector<StepFunction> m_steps;
+};
 
-    ResultType m_pending_sentinel;
-    ResultType m_success_sentinel;
+
+template <>
+class async_chain_t<void>: public std::enable_shared_from_this<async_chain_t<void>> {
+public:
+    using Pointer = std::shared_ptr<async_chain_t<void>>;
+    using ChainCallback = std::function<void(step_status_t)>;
+    using ResultCallback = std::function<void(step_status_t)>;
+    using StepFunction = std::function<step_status_t(ChainCallback)>;
+
+
+    static Pointer create(ResultCallback on_done) {
+        return Pointer(new async_chain_t(std::move(on_done)));
+    }
+
+    async_chain_t* then(StepFunction step) {
+        m_steps.push_back(std::move(step));
+        return this;
+    }
+
+    void run() { this->run_step(0); }
+
+private:
+    async_chain_t(ResultCallback on_done) : m_on_done(std::move(on_done)) {}
+
+    void run_step(size_t index) {
+        if (index == m_steps.size()) {
+            m_on_done(step_status_t::SUCCESS);
+            return;
+        }
+
+        auto self = this->shared_from_this();
+        auto delayed_cb = [self, index](step_status_t result) {
+            if (result == step_status_t::SUCCESS) self->run_step(index + 1);
+            else self->m_on_done(step_status_t::FAILURE);
+        };
+
+        step_status_t immediate_result = m_steps[index](delayed_cb);
+        if (immediate_result != step_status_t::PENDING) delayed_cb(immediate_result);
+    }
+
     ResultCallback m_on_done;
     std::vector<StepFunction> m_steps;
 };

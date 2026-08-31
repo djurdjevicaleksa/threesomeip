@@ -33,6 +33,10 @@
 \*===========*/
 #include <spdlog/spdlog.h>
 
+/*
+    FORGOT TO CHECK IF THERE IS ANYTHING TO RETRY SENDING, I JUST RETRY INDEFINITELY
+*/
+
 
 #if defined(EAGAIN) && defined(EWOULDBLOCK)
     #if EAGAIN == EWOULDBLOCK
