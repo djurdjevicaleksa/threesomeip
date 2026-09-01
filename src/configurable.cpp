@@ -20,11 +20,14 @@
 #include <configuration.hpp>
 
 
+namespace fs = std::filesystem;
+
+
 namespace threesomeip {
 
 
-configurable_t::configurable_t(const char* ecu_configuration_file_path) {
-    auto loaded_configuration = parseEcuConfiguration(ecu_configuration_file_path);
+configurable_t::configurable_t(fs::path config_path) {
+    auto loaded_configuration = parseEcuConfiguration(config_path);
     if (loaded_configuration) {
         m_ecu_configuration = loaded_configuration.value();
     }
@@ -55,7 +58,7 @@ configurable_t::parseStringAsU16(std::string_view value) noexcept {
 }
 
 std::expected<config::ecu_configuration_t, configurable_t::ConfigurationParsingError>
-configurable_t::parseEcuConfiguration(const char* ecu_configuration_file_path) noexcept {
+configurable_t::parseEcuConfiguration(fs::path ecu_configuration_file_path) noexcept {
     using json = nlohmann::json;
 
     std::ifstream ecu_config_file_handle(ecu_configuration_file_path);
@@ -79,7 +82,7 @@ configurable_t::parseEcuConfiguration(const char* ecu_configuration_file_path) n
                 std::move(data["logging"]["file"]["path"]) : "";
         config.logging.dlt = data["logging"]["dlt"];
 
-        for (const auto& application: data["applications"]) {
+        for (auto& application: data["applications"]) {
             config.applications.emplace_back(
                 std::move(application["name"]),
                 parseStringAsU16(static_cast<std::string>(application["id"])).value()
@@ -96,6 +99,7 @@ configurable_t::parseEcuConfiguration(const char* ecu_configuration_file_path) n
         }
 
         config.runtime_application_name = std::move(data["routing"]);
+        config.sockets_path = fs::path{std::move(data["ipc-path"])};
 
         // TODO parse service discovery
 

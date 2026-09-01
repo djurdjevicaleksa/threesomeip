@@ -21,8 +21,10 @@
 \*=============*/
 #include <comm_ipc.hpp>
 #include <udsocket.hpp>
+#include <tcpsocket.hpp>
 #include <active_object.hpp>
 #include <timer.hpp>
+#include <configurable.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -36,13 +38,12 @@ namespace threesomeip::runtime {
 using namespace threesomeip;
 
 
-class runtime_stub_t {
+class runtime_stub_t: public configurable_t {
 public:
 
     runtime_stub_t(
-        utils::active_object_ptr_t active_object,
-        const fs::path& sockets_path,
-        std::string_view runtime_application_name
+        fs::path configuration_path,
+        utils::active_object_ptr_t active_object
     ) noexcept;
 
 private:
@@ -50,11 +51,9 @@ private:
     using service_id_t = uint16_t;
     using application_id_t = uint16_t;
 
-    void handle_on_receive(
-        ipc::ud_socket_t& self,
-        const ipc::types::socket_handle_t& sender,
-        const std::span<const std::byte> data
-    ) noexcept;
+    void handle_on_receive(ipc::ud_socket_t& self, const ipc::types::socket_handle_t& sender, const std::span<const std::byte> data) noexcept;
+
+    void handle_on_receive_reliable(const std::string& address, const int port, const std::span<const std::byte> data) noexcept;
 
     void evict_application(const ipc::types::socket_handle_t& socket_handle);
 
@@ -90,7 +89,9 @@ private:
 
     utils::active_object_ptr_t m_active_object;
     ipc::types::socket_handle_t m_own_socket_handle;
+
     ipc::ud_socket_t m_socket;
+    net::tcp_socket_t m_reliable;
 
     std::shared_ptr<spdlog::logger> m_logger;
 

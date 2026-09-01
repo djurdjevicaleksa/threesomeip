@@ -28,11 +28,10 @@ int main() {
 
 
     runtime::runtime_proxy_t runtime_proxy{
+        "/home/adjurdjevic/Desktop/threesomeip/someip.json",
         active_object,
-        "/home/lecq/Desktop/threesomeip/ipc_sockets",
         "calculator_stub",
         uint16_t{2},
-        "runtime",
         std::vector<config::service_configuration_t>{
             config::service_configuration_t{
                 uint16_t{0x1234},

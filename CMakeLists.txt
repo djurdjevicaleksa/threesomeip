@@ -17,6 +17,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 add_subdirectory(${spd})
 add_subdirectory(${gtest})
 add_subdirectory(${ftxui})
+add_subdirectory(${json})
 
 
 # Global project configuration

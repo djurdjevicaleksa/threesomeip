@@ -2,9 +2,11 @@
 
 add_library( threesomeip_impl
     udsocket.cpp
+    tcpsocket.cpp
+    configurable.cpp
+    active_object.cpp
     runtime_proxy.cpp
     runtime_stub.cpp
-    active_object.cpp
 )
 
 target_include_directories( threesomeip_impl
@@ -15,6 +17,7 @@ target_include_directories( threesomeip_impl
 target_link_libraries ( threesomeip_impl
     PUBLIC
         spdlog
+        nlohmann_json
 )
 
 target_compile_options( threesomeip_impl
@@ -37,6 +40,7 @@ macro(build_application application_name)
     target_link_libraries( ${application_name}
         PRIVATE
             threesomeip_impl
+            spdlog
     )
 
     target_compile_options( ${application_name}
@@ -51,5 +55,5 @@ endmacro()
 
 build_application(runtime)
 
-# build_application(main_calculator_proxy)
-# build_application(main_calculator_stub)
+build_application(main_tcp1)
+build_application(main_tcp2)

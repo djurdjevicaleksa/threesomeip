@@ -17,6 +17,7 @@
  * APPLICATION *
 \*=============*/
 #include <configuration.hpp>
+#include <configurable.hpp>
 #include <udsocket.hpp>
 #include <active_object.hpp>
 #include <timer.hpp>
@@ -35,16 +36,15 @@ namespace threesomeip::runtime {
 using namespace threesomeip;
 
 
-class runtime_proxy_t {
+class runtime_proxy_t: public configurable_t {
 public:
     using MessageReceivedCallback = std::function<void(std::span<const std::byte>)>;
 
     runtime_proxy_t(
+        fs::path configuration_path,
         utils::active_object_ptr_t active_object,
-        const fs::path& sockets_path,
         std::string_view app_name,
         uint16_t app_id,
-        std::string_view runtime_name,
         std::span<const config::service_configuration_t> offered_services,
         std::span<const config::service_configuration_t> requested_services
     ) noexcept;

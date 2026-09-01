@@ -11,7 +11,7 @@
 
 #include <tcpsocket.hpp>
 #include <active_object.hpp>
-#include <async_chain.hpp>
+#include <awaitable.hpp>
 
 #include <spdlog/spdlog.h>
 
@@ -35,7 +35,7 @@ namespace threesomeip::net {
 
 
 tcp_socket_t::tcp_socket_t(utils::active_object_ptr_t active_object, const std::string& address, const int port, ReceiveCallback on_receive):
-    m_active_object(active_object), m_fd(-1), m_address(address), m_port(port), m_on_receive(std::move(on_receive)) {
+    m_active_object(active_object), m_on_receive(std::move(on_receive)), m_fd(-1), m_address(address), m_port(port) {
     this->init();
 }
 
@@ -60,10 +60,10 @@ void tcp_socket_t::init() noexcept {
 
         m_logger->debug("Opened a socket");
 
-        sockaddr_in own_address{0};
+        sockaddr_in own_address{};
 
         own_address.sin_family = AF_INET;
-        own_address.sin_port = htons(m_port);
+        own_address.sin_port = htons(static_cast<short unsigned int>(m_port));
         inet_pton(AF_INET, m_address.c_str(), &own_address.sin_addr);
 
         if (-1 == bind(m_fd, reinterpret_cast<const sockaddr*>(&own_address), sizeof(own_address))) {
@@ -82,6 +82,7 @@ void tcp_socket_t::init() noexcept {
         (void) m_active_object->add_fd_to_readable_watchlist(m_fd, std::bind_front(&tcp_socket_t::accept_connections, this));
 
         this->to_alive();
+
         return;
 
     } while (false);
@@ -103,136 +104,101 @@ void tcp_socket_t::on_dead() {
     m_logger->debug("Socket proclaimed dead");
 }
 
-send_result_t tcp_socket_t::send(const std::string& address, const int port, std::span<const std::byte> data, std::optional<DelayedResultCallback> on_delayed_result) {
-    /* the socket does not need to be "alive" in order to send a message; a new socket is created and used for it */
+utils::detached_task_t tcp_socket_t::send_to(const std::string& address, const int port, std::span<const std::byte> data, std::optional<DelayedResultCallback> on_delayed_result) {
+    auto owned_data = std::make_shared<std::vector<std::byte>>(data.begin(), data.end());
 
-    int fd{-1};
+    int fd = co_await this->connect_or_reuse_connection(address, port);
+
+    if (fd < 0) {
+        if (on_delayed_result) [[likely]] {
+            on_delayed_result.value()(send_result_t::EPHEMERAL_SOCKET_DEAD, address, port, *owned_data);
+        }
+        co_return;
+    }
+
+    send_result_t result = co_await this->write_all(fd, owned_data);
+    if (on_delayed_result) [[likely]] {
+        on_delayed_result.value()(result, address, port, *owned_data);
+    }
+}
+
+utils::awaitable_t<int> tcp_socket_t::connect_or_reuse_connection(const std::string& address, const int port) {
     const endpoint_t endpoint{address, port};
-
-    utils::async_chain_t<>::create()
-
     if (m_connection_fds.contains(endpoint)) {
-        fd = m_connection_fds.at(endpoint);
+        int fd = m_connection_fds.at(endpoint);
+        return utils::awaitable_t<int>([fd] (std::function<void(int)> resume) {
+            resume(fd);
+        });
     }
-    else {
-        const int sock = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_TCP);
 
-        if (-1 == sock) {
-            /* currently no issue which can arise is recoverable */
-            m_logger->error("Failed to open a socket for outgoing connection");
-            return -1;
+    return utils::awaitable_t<int>([this, address, port] (std::function<void(int)> resume) {
+        int result = this->_internal_detail_connect_to(address, port, [resume] (int fd) { resume(fd); });
+
+        /* if we immediately know the outcome */
+        if (-2 != result) {
+            resume(result);
         }
+    });
+}
 
-        m_logger->debug("Opened a socket for outgoing connection");
+utils::awaitable_t<send_result_t> tcp_socket_t::write_all(const int fd, std::shared_ptr<std::vector<std::byte>> data) {
+    return utils::awaitable_t<send_result_t>(
+        [this, fd, data] (std::function<void(send_result_t)> resume) -> void {
+            size_t bytes_written{0};
+            while (bytes_written < data->size()) {
+                ssize_t increment = ::send(fd, data->data() + bytes_written, data->size() - bytes_written, MSG_NOSIGNAL);
 
-        sockaddr_in own_address{
-            .sin_family{AF_INET},
-            .sin_port{htons(0)},
-            .sin_addr{}
-        };
-        inet_pton(AF_INET, m_address.c_str(), &own_address.sin_addr);
+                if (-1 == increment) {
+                    switch (errno) {
+                        CASE_EAGAIN_EWOULDBLOCK: {
+                            m_connection_details.at(fd).pending_messages.emplace(
+                                *data,
+                                bytes_written,
+                                [resume] (send_result_t result_, const std::string&, int, std::span<const std::byte>) { resume(result_); }
+                            );
+                            (void) m_active_object->add_fd_to_writeable_watchlist(fd, std::bind_front(&tcp_socket_t::retry_messages, this, fd));
+                            return;
+                        }
 
-        if (-1 == bind(sock, reinterpret_cast<const sockaddr*>(&own_address), sizeof(own_address))) {
-            /* currently no issue can arise which is recoverable */
-            m_logger->error("Failed to bind for outgoing connection");
-            close(sock);
-            return -1;
-        }
+                        case EINTR: {
+                            /* interrupted; try again */
+                            continue;
+                        }
 
-        sockaddr_in recipient_address{
-            .sin_family{AF_INET},
-            .sin_port{port},
-            .sin_addr{}
-        };
-        inet_pton(AF_INET, address.c_str(), &recipient_address.sin_addr);
-
-        if (-1 == ::connect(sock, reinterpret_cast<const sockaddr*>(&recipient_address), sizeof(recipient_address))) {
-            switch (errno) {
-
-                /* wait for delayed notification of connection */
-                case EINPROGRESS: {
-
+                        default: {
+                            /* exceptional case; evict connection */
+                            this->evict_connection(fd);
+                            resume(send_result_t::EPHEMERAL_SOCKET_DEAD);
+                            return;
+                        }
+                    }
                 }
-            }
+                else if (0 == increment) {
+                    m_logger->warn("Unexpectedly sent 0 bytes");
 
-            /* TODO handle errors */
-            m_logger->error("Failed to connect for outgoing connection");
-            close(sock);
-            return -1;
-        }
-
-
-
-
-        fd = this->create_sending_socket(address, port);
-        if (-1 == fd) {
-            return send_result_t::EPHEMERAL_SOCKET_DEAD;
-        }
-
-        /* register the connection internally */
-        m_connection_fds.emplace(endpoint_t{address, port}, fd);
-        m_connection_details.emplace(
-            fd,
-            connection_details_t{
-                .recipient{endpoint},
-                .pending_messages{}
-            }
-        );
-    }
-
-    size_t bytes_written{0};
-    while (bytes_written < data.size()) {
-        ssize_t increment = ::send(fd, data.data() + bytes_written, data.size() - bytes_written, MSG_NOSIGNAL);
-
-        if (-1 == increment) {
-            switch (errno) {
-                CASE_EAGAIN_EWOULDBLOCK: {
                     m_connection_details.at(fd).pending_messages.emplace(
-                        std::vector(data.begin(), data.end()),
+                        *data,
                         bytes_written,
-                        std::move(on_delayed_result.value_or(nullptr))
+                        [resume] (send_result_t result_, const std::string&, int, std::span<const std::byte>) { resume(result_); }
                     );
-
                     (void) m_active_object->add_fd_to_writeable_watchlist(fd, std::bind_front(&tcp_socket_t::retry_messages, this, fd));
-                    return send_result_t::DELAYED_RESULT;
+                    return;
                 }
-
-                case EINTR: {
-                    /* interrupted; try again */
-                    continue;
-                }
-
-                default: {
-                    /* exceptional case; evict connection */
-                    this->evict_connection(fd);
-                    return send_result_t::EPHEMERAL_SOCKET_DEAD;
+                else {
+                    bytes_written += increment;
                 }
             }
+
+            resume(send_result_t::SENT);
         }
-        else if (0 == increment) {
-            m_logger->warn("Unexpectedly sent 0 bytes");
-
-            m_connection_details.at(fd).pending_messages.emplace(
-                std::vector(data.begin(), data.end()),
-                bytes_written,
-                std::move(on_delayed_result.value_or(nullptr))
-            );
-
-            (void) m_active_object->add_fd_to_writeable_watchlist(fd, std::bind_front(&tcp_socket_t::retry_messages, this, fd));
-            return send_result_t::DELAYED_RESULT;
-        }
-
-        bytes_written += increment;
-    }
-
-    return send_result_t::SENT;
+    );
 }
 
 /*
-    Creates an ephemeral socket used for initiating a connection for sending data to another socket.
-    Cleans up after itself.
+    Creates and connects an ephemeral socket used for sending data. Cleans up after itself.
+    Returns -1 on fatal error, -2 on delayed response or a valid fd on success.
 */
-int tcp_socket_t::create_sending_socket(const std::string& address, const int port) {
+int tcp_socket_t::_internal_detail_connect_to(const std::string& address, const int port, std::function<void(int)> on_delayed_result) {
     const int sock = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_TCP);
 
     if (-1 == sock) {
@@ -246,7 +212,8 @@ int tcp_socket_t::create_sending_socket(const std::string& address, const int po
     sockaddr_in own_address{
         .sin_family{AF_INET},
         .sin_port{htons(0)},
-        .sin_addr{}
+        .sin_addr{},
+        .sin_zero{}
     };
     inet_pton(AF_INET, m_address.c_str(), &own_address.sin_addr);
 
@@ -259,27 +226,72 @@ int tcp_socket_t::create_sending_socket(const std::string& address, const int po
 
     sockaddr_in recipient_address{
         .sin_family{AF_INET},
-        .sin_port{port},
-        .sin_addr{}
+        .sin_port{htons(port)},
+        .sin_addr{},
+        .sin_zero{}
     };
     inet_pton(AF_INET, address.c_str(), &recipient_address.sin_addr);
 
     if (-1 == ::connect(sock, reinterpret_cast<const sockaddr*>(&recipient_address), sizeof(recipient_address))) {
         switch (errno) {
-
             /* wait for delayed notification of connection */
             case EINPROGRESS: {
-                m_active_object->add_fd_to_readable_watchlist(sock); continue here 
+                (void) m_active_object->add_fd_to_writeable_watchlist(sock, [this, sock, cb = std::move(on_delayed_result), address, port] () -> void {
+                    (void) m_active_object->remove_fd_from_writeable_watchlist(sock);
+
+                    int socket_error{0};
+                    socklen_t length{sizeof(socket_error)};
+                    getsockopt(sock, SOL_SOCKET, SO_ERROR, &socket_error, &length);
+
+                    if (socket_error == 0) {
+
+                        /* add it to the list of connections */
+                        endpoint_t new_endpoint{address, port};
+                        m_connection_fds.emplace(new_endpoint, sock);
+                        m_connection_details.emplace(
+                            sock,
+                            connection_details_t{
+                                std::move(new_endpoint),
+                                {}
+                            }
+                        );
+                        (void) m_active_object->add_fd_to_readable_watchlist(sock, std::bind_front(&tcp_socket_t::receive_messages, this, sock));
+
+                        m_logger->debug("Connected for outgoing connection after a delay");
+                        cb(sock);
+                    }
+                    else {
+                        m_logger->error("Failed to connect for outgoing connection after a delay");
+                        close(sock);
+                        cb(-1);
+                    }
+                });
+
                 return -2;
             }
-        }
 
-        /* TODO handle errors */
-        m_logger->error("Failed to connect for outgoing connection");
-        close(sock);
-        return -1;
+            default: {
+                /* exceptional case; unsupported */
+                m_logger->error("Failed to connect for outgoing connection");
+                close(sock);
+                return -1;
+            }
+        }
     }
 
+    /* add it to the list of connections */
+    endpoint_t new_endpoint{address, port};
+    m_connection_fds.emplace(new_endpoint, sock);
+    m_connection_details.emplace(
+        sock,
+        connection_details_t{
+            std::move(new_endpoint),
+            {}
+        }
+    );
+    (void) m_active_object->add_fd_to_readable_watchlist(sock, std::bind_front(&tcp_socket_t::receive_messages, this, sock));
+
+    m_logger->debug("Connected for outgoing connection");
     return sock;
 }
 
@@ -289,7 +301,7 @@ void tcp_socket_t::accept_connections() {
 
     /* returns true if it should continue accepting */
     const auto acceptSingleConnection = [this] () -> bool {
-        sockaddr_in client_address{0};
+        sockaddr_in client_address{};
         socklen_t client_length{sizeof(client_address)};
 
         int client_fd{-1};
@@ -351,7 +363,7 @@ void tcp_socket_t::receive_messages(const int fd) {
 
         /* prepare output buffer */
         std::array<std::byte, /* TODO reevaluate the size */ 1400> message_buffer{};
-        size_t bytes_read{0};
+        ssize_t bytes_read{0};
 
         /* "goto" alternative for when EINTR happens; still a single try */
         for (;;) {
@@ -390,7 +402,8 @@ void tcp_socket_t::receive_messages(const int fd) {
         }
 
         if (m_on_receive) [[likely]] {
-            m_on_receive(fd, std::span{message_buffer}.subspan(0, bytes_read));
+            auto& entry = m_connection_details.at(fd);
+            m_on_receive(entry.recipient.address, entry.recipient.port, std::span{message_buffer}.subspan(0, bytes_read));
         }
         return true;
     };
@@ -463,20 +476,21 @@ void tcp_socket_t::retry_messages(const int fd) {
 
     while (retrySingleMessage()) {}
 
-    if (0 == m_connection_details.at(fd).pending_messages.size()) {
+    if (m_connection_details.contains(fd) && (0 == m_connection_details.at(fd).pending_messages.size())) {
         (void) m_active_object->remove_fd_from_writeable_watchlist(fd);
+
     }
 }
 
 void tcp_socket_t::evict_connection(const int fd) {
-    (void) m_active_object->remove_fd_from_readable_watchlist(fd);
-    (void) m_active_object->remove_fd_from_writeable_watchlist(fd);
-
-    if (m_connection_details.contains(fd)) {
-        m_connection_fds.erase(m_connection_details.at(fd).recipient);
-        m_connection_details.erase(fd);
-    }
     if (-1 != fd) {
+        (void) m_active_object->remove_fd_from_readable_watchlist(fd);
+        (void) m_active_object->remove_fd_from_writeable_watchlist(fd);
+
+        if (m_connection_details.contains(fd)) {
+            m_connection_fds.erase(m_connection_details.at(fd).recipient);
+            m_connection_details.erase(fd);
+        }
         close(fd);
     }
 }

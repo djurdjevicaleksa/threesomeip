@@ -42,19 +42,19 @@ namespace threesomeip::runtime {
 using namespace threesomeip;
 
 runtime_proxy_t::runtime_proxy_t(
+    fs::path configuration_path,
     utils::active_object_ptr_t active_object,
-    const fs::path& sockets_path,
     std::string_view app_name,
     uint16_t app_id,
-    std::string_view runtime_name,
     std::span<const config::service_configuration_t> offered_services,
     std::span<const config::service_configuration_t> requested_services
 ) noexcept:
+    configurable_t(configuration_path),
     m_active_object(active_object),
     m_app_name(app_name),
     m_app_id(app_id),
-    m_own_socket_handle((sockets_path / std::format("{}_{}.sock", m_app_name, m_app_id)).string()),
-    m_runtime_handle((sockets_path / std::format("{}.sock", runtime_name)).string()),
+    m_own_socket_handle((m_ecu_configuration.sockets_path / std::format("{}_{}.sock", m_app_name, m_app_id)).string()),
+    m_runtime_handle((m_ecu_configuration.sockets_path / std::format("{}.sock", m_ecu_configuration.runtime_application_name)).string()),
     m_offered_services(offered_services.begin(), offered_services.end()),
     m_requested_services(requested_services.begin(), requested_services.end()),
     m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_proxy_t::handle_on_receive, this)),

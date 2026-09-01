@@ -21,7 +21,7 @@ namespace threesomeip {
 class configurable_t {
 public:
 
-    configurable_t(const char*);
+    configurable_t(fs::path config_path);
 
 private:
 
@@ -52,7 +52,7 @@ private:
         Initializes internal configuration by reading the ecu configuration file.
     */
     std::expected<config::ecu_configuration_t, ConfigurationParsingError>
-    parseEcuConfiguration(const char*) noexcept;
+    parseEcuConfiguration(fs::path) noexcept;
 
 protected:
 

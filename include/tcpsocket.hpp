@@ -13,6 +13,7 @@
 
 #include <active_object.hpp>
 #include <lifecycle_listener.hpp>
+#include <awaitable.hpp>
 
 #include <spdlog/spdlog.h>
 
@@ -33,28 +34,29 @@ class tcp_socket_t: public ipc::lifecycle_listener_t {
 public:
 
     using DelayedResultCallback = std::function<void(const send_result_t result, const std::string& address, const int port, const std::span<const std::byte> data)>;
-    using ReceiveCallback = std::function<void(const int fd, const std::span<const std::byte> data)>;
-
+    using ReceiveCallback = std::function<void(const std::string& address, const int port, const std::span<const std::byte> data)>;
 
     tcp_socket_t(utils::active_object_ptr_t active_object, const std::string& address, const int port, ReceiveCallback on_receive);
 
-    send_result_t send(const std::string& address, const int port, std::span<const std::byte> data, std::optional<DelayedResultCallback> on_delayed_result);
-
     ~tcp_socket_t() noexcept {}
+
+    utils::detached_task_t send_to(const std::string& address, const int port, std::span<const std::byte> data, std::optional<DelayedResultCallback> on_delayed_result);
 
 private:
 
     void init() noexcept;
 
-    int create_sending_socket(const std::string& address, const int port);
+    utils::awaitable_t<int> connect_or_reuse_connection(const std::string& address, const int port);
+
+    utils::awaitable_t<send_result_t> write_all(const int fd, std::shared_ptr<std::vector<std::byte>> data);
+
+    int _internal_detail_connect_to(const std::string& address, const int port, std::function<void(int)> on_delayed_result);
 
     void accept_connections();
 
     void receive_messages(const int fd);
 
     void retry_messages(const int fd);
-
-    void connect(const std::string& address, const int port);
 
     void evict_connection(const int fd);
 

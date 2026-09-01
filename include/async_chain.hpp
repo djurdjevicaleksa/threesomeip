@@ -23,7 +23,7 @@ public:
     using Pointer = std::shared_ptr<async_chain_t<Context>>;
     using ChainCallback = std::function<void(step_status_t)>;
     using ResultCallback = std::function<void(step_status_t, std::shared_ptr<Context>)>;
-    using StepFunction = std::function<step_status_t(std::shared_ptr<Context>, ChainCallback)>;
+    using StepFunction = std::function<step_status_t(ChainCallback, std::shared_ptr<Context>)>;
 
 
     template <typename... ContextArgs>

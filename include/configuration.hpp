@@ -7,6 +7,10 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <filesystem>
+
+
+namespace fs = std::filesystem;
 
 
 namespace threesomeip::config {
@@ -39,7 +43,7 @@ struct ecu_configuration_t {
     std::vector<application_configuration_t> applications;
     std::vector<service_configuration_t> services;
     std::string runtime_application_name;
-    // TODO service_discovery_configuration_t sd;
+    fs::path sockets_path;
 };
 
 } // namespace threesomeip

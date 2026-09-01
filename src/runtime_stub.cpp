@@ -23,13 +23,17 @@
 
 namespace fs = std::filesystem;
 
+
 namespace threesomeip::runtime {
 using namespace threesomeip;
 
-runtime_stub_t::runtime_stub_t(utils::active_object_ptr_t active_object, const fs::path& sockets_path, std::string_view runtime_application_name) noexcept:
+
+runtime_stub_t::runtime_stub_t(fs::path configuration_path, utils::active_object_ptr_t active_object) noexcept:
+    configurable_t(configuration_path),
     m_active_object(active_object),
-    m_own_socket_handle((sockets_path / std::format("{}.sock", runtime_application_name)).string()),
+    m_own_socket_handle((m_ecu_configuration.sockets_path / std::format("{}.sock", m_ecu_configuration.runtime_application_name)).string()),
     m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_stub_t::handle_on_receive, this)),
+    m_reliable(m_active_object, m_ecu_configuration.unicast_address, 40000, std::bind_front(&runtime_stub_t::handle_on_receive_reliable, this)),
     m_eviction_timer(
         utils::timer_factory::make_periodic_timer(m_active_object, std::chrono::seconds(10), [this] () {
             auto current_time = std::chrono::steady_clock::now();
@@ -245,6 +249,14 @@ void runtime_stub_t::handle_on_receive(
             break;
         }
     }
+}
+
+/* pure someip; no ipc header */
+void runtime_stub_t::handle_on_receive_reliable(const std::string& address, const int port, const std::span<const std::byte> data) noexcept {
+    std::byte* cursor{nullptr};
+    const auto someip_header = someip::serdes::deserialize<someip::types::message_header_t>(data.data(), &cursor);
+
+    // ....
 }
 
 /* socket_handle must not be passed from an internal data structure; its captured by reference */

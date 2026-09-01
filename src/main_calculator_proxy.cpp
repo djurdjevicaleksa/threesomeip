@@ -107,11 +107,10 @@ int main() {
 
     // --- runtime + proxy setup -------------------------------------------
     threesomeip::runtime::runtime_proxy_t runtime_proxy{
+        "/home/adjurdjevic/Desktop/threesomeip/someip.json",
         active_object,
-        "/home/lecq/Desktop/threesomeip/ipc_sockets",
         "calculator_proxy",
         uint16_t{1},
-        "runtime",
         {},
         std::vector<config::service_configuration_t>{
             config::service_configuration_t{
