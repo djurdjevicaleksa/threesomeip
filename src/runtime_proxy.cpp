@@ -27,7 +27,7 @@
 #include <serdes/someip_types.hpp>
 #include <comm_ipc.hpp>
 #include <timer.hpp>
-#include <async_chain.hpp>
+#include <awaitable.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -59,82 +59,7 @@ runtime_proxy_t::runtime_proxy_t(
     m_requested_services(requested_services.begin(), requested_services.end()),
     m_socket(m_active_object, m_own_socket_handle, std::bind_front(&runtime_proxy_t::handle_on_receive, this)),
     m_runtime_online(false),
-    m_heartbeat(
-        utils::timer_factory::make_periodic_timer(
-            m_active_object,
-            std::chrono::seconds(3),
-            [this] () -> void {
-                std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
-                ipc::types::message_header_t message_header{
-                    .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
-                    .protocol_version{1},
-                    .message_type{ipc::types::message_type_t::HEARTBEAT},
-                    ._flags{someip::types::uint8{0}},
-                    ._request_id{someip::types::uint16{0}},
-                    ._reserved{someip::types::uint16{0}},
-                    .payload_length{static_cast<someip::types::uint16>(0)},
-                };
-                size_t header_length = someip::serdes::serialize(message_buffer.data(), message_header);
-
-                /* this lambda can run both synchronously and asynchronously */
-                const auto handleResult = [this] (const ipc::send_result_t result) {
-                    switch(result) {
-                        /* connect only when it was previously disconnected */
-                        case ipc::send_result_t::SENT: {
-                            if (!m_runtime_online && !m_reconnect_in_progress) {
-                                m_reconnect_in_progress = true;
-                                this->reconnect(
-                                    [this] (utils::step_status_t reconnect_result) {
-                                        m_reconnect_in_progress = false;
-                                        if (reconnect_result == utils::step_status_t::SUCCESS) {
-                                            m_runtime_online = true;
-                                            m_logger->debug("The runtime became online again");
-                                        }
-                                    }
-                                );
-                            }
-                            break;
-                        }
-
-                        /* can only happen on the first try */
-                        case ipc::send_result_t::DELAYED_RESULT: {
-                            /* do nothing, another call of this lambda will act accordingly */
-                            break;
-                        }
-
-                        /* same for both calls to this lambda */
-                        case ipc::send_result_t::RECIPIENT_AWAY: {
-                            if (m_runtime_online) {
-                                m_logger->debug("The runtime went offline");
-                            }
-                            m_runtime_online = false;
-                            break;
-                        }
-
-                        case ipc::send_result_t::SOCKET_DEAD: {
-                            /* assuming wont happen */
-                            break;
-                        }
-                    }
-                };
-
-                handleResult(
-                    m_socket.send(
-                        m_runtime_handle,
-                        std::span{message_buffer}.subspan(0, header_length),
-                        [handleResult] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) -> void {
-                            (void) recipient;
-                            (void) data;
-                            handleResult(result);
-                        }
-                    )
-                );
-
-                m_logger->debug("Heartbeat");
-            }
-        )
-    )
-{
+    m_heartbeat(utils::timer_factory::make_periodic_timer(m_active_object, std::chrono::seconds(3), std::bind_front(&runtime_proxy_t::send_heartbeat, this))) {
 
     auto& sinks = spdlog::get(std::string{m_active_object->get_name()})->sinks();
     m_logger = std::make_shared<spdlog::logger>("RTProxy", sinks.begin(), sinks.end());
@@ -148,9 +73,9 @@ runtime_proxy_t::runtime_proxy_t(
 
     m_reconnect_in_progress = true;
     this->reconnect(
-        [this] (utils::step_status_t result) {
+        [this] (bool success) {
             m_reconnect_in_progress = false;
-            if (result == utils::step_status_t::SUCCESS) {
+            if (success) {
                 m_runtime_online = true;
                 m_heartbeat->start();
             }
@@ -158,48 +83,95 @@ runtime_proxy_t::runtime_proxy_t(
     );
 }
 
-void runtime_proxy_t::reconnect(std::function<void(utils::step_status_t)> on_success) {
+utils::detached_task_t runtime_proxy_t::reconnect(std::function<void(bool)> on_done) {
+    if (co_await this->register_application() != ipc::send_result_t::SENT) {
+        on_done(false);
+        co_return;
+    }
+    if (co_await this->offer_services() != ipc::send_result_t::SENT) {
+        on_done(false);
+        co_return;
+    }
+    if (co_await this->request_services() != ipc::send_result_t::SENT) {
+        on_done(false);
+        co_return;
+    }
 
-    utils::async_chain_t<>::create(std::move(on_success))
-        ->then([this] (auto delayed_callback) -> utils::step_status_t {
-            auto on_delayed = [delayed_callback] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
-                if (result == ipc::send_result_t::SENT) delayed_callback(utils::step_status_t::SUCCESS);
-                else delayed_callback(utils::step_status_t::FAILURE);
-            };
-            const auto immediate_result = this->register_application(std::move(on_delayed));
-
-            if (immediate_result == ipc::send_result_t::SENT) return utils::step_status_t::SUCCESS;
-            else if (immediate_result == ipc::send_result_t::DELAYED_RESULT) return utils::step_status_t::PENDING;
-            else return utils::step_status_t::FAILURE;
-        })
-        ->then([this] (auto delayed_callback) -> utils::step_status_t {
-            auto on_delayed = [delayed_callback] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
-                if (result == ipc::send_result_t::SENT) delayed_callback(utils::step_status_t::SUCCESS);
-                else delayed_callback(utils::step_status_t::FAILURE);
-            };
-            const auto immediate_result = this->offer_services(std::move(on_delayed));
-
-            if (immediate_result == ipc::send_result_t::SENT) return utils::step_status_t::SUCCESS;
-            else if (immediate_result == ipc::send_result_t::DELAYED_RESULT) return utils::step_status_t::PENDING;
-            else return utils::step_status_t::FAILURE;
-        })
-        ->then([this] (auto delayed_callback) -> utils::step_status_t {
-            auto on_delayed = [delayed_callback] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
-                if (result == ipc::send_result_t::SENT) delayed_callback(utils::step_status_t::SUCCESS);
-                else delayed_callback(utils::step_status_t::FAILURE);
-            };
-            const auto immediate_result = this->offer_services(std::move(on_delayed));
-
-            if (immediate_result == ipc::send_result_t::SENT) return utils::step_status_t::SUCCESS;
-            else if (immediate_result == ipc::send_result_t::DELAYED_RESULT) return utils::step_status_t::PENDING;
-            else return utils::step_status_t::FAILURE;
-        })
-        ->run();
+    on_done(true);
+    co_return;
 }
 
-ipc::send_result_t runtime_proxy_t::register_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    using namespace threesomeip;
+void runtime_proxy_t::send_heartbeat() {
+    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
+    ipc::types::message_header_t message_header{
+        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
+        .protocol_version{1},
+        .message_type{ipc::types::message_type_t::HEARTBEAT},
+        ._flags{someip::types::uint8{0}},
+        ._request_id{someip::types::uint16{0}},
+        ._reserved{someip::types::uint16{0}},
+        .payload_length{static_cast<someip::types::uint16>(0)},
+    };
+    size_t header_length = someip::serdes::serialize(message_buffer.data(), message_header);
 
+    /* this lambda can run both synchronously and asynchronously */
+    const auto handleResult = [this] (const ipc::send_result_t result) {
+        switch(result) {
+            /* connect only when it was previously disconnected */
+            case ipc::send_result_t::SENT: {
+                if (!m_runtime_online && !m_reconnect_in_progress) {
+                    m_reconnect_in_progress = true;
+                    this->reconnect(
+                        [this] (bool success) {
+                            m_reconnect_in_progress = false;
+                            if (success) {
+                                m_runtime_online = true;
+                                m_heartbeat->start();
+                            }
+                        }
+                    );
+                }
+                break;
+            }
+
+            /* can only happen on the first try */
+            case ipc::send_result_t::DELAYED_RESULT: {
+                /* do nothing, another call of this lambda will act accordingly */
+                break;
+            }
+
+            /* same for both calls to this lambda */
+            case ipc::send_result_t::RECIPIENT_AWAY: {
+                if (m_runtime_online) {
+                    m_logger->debug("The runtime went offline");
+                }
+                m_runtime_online = false;
+                break;
+            }
+
+            case ipc::send_result_t::SOCKET_DEAD: {
+                /* assuming wont happen */
+                break;
+            }
+        }
+    };
+
+    handleResult(
+        m_socket.send(
+            m_runtime_handle,
+            std::span{message_buffer}.subspan(0, header_length),
+            [handleResult] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) -> void {
+                (void) recipient;
+                (void) data;
+                handleResult(result);
+            }
+        )
+    );
+
+    m_logger->debug("Heartbeat");
+}
+
+utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::register_application() {
     std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
 
     /* calculate the size of the serialized header */
@@ -225,12 +197,23 @@ ipc::send_result_t runtime_proxy_t::register_application(std::optional<ipc::ud_s
     someip::serdes::serialize(message_buffer.data(), message_header);
 
     m_logger->info("Announcing application registration");
-    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
+
+    return utils::awaitable_t<ipc::send_result_t>(
+        [this, msg = std::move(message_buffer), payload_length] (std::function<void(ipc::send_result_t)> resume) {
+            auto result = m_socket.send(
+                m_runtime_handle,
+                std::span{msg}.subspan(0, ipc_header_length + payload_length),
+                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) { resume(result_); }
+            );
+
+            if (result != ipc::send_result_t::DELAYED_RESULT) {
+                resume(result);
+            }
+        }
+    );
 }
 
-ipc::send_result_t runtime_proxy_t::unregister_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    using namespace threesomeip;
-
+utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::unregister_application() {
     std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
 
     /* calculate the size of the serialized header */
@@ -256,12 +239,23 @@ ipc::send_result_t runtime_proxy_t::unregister_application(std::optional<ipc::ud
     someip::serdes::serialize(message_buffer.data(), message_header);
 
     m_logger->info("Announcing application unregistration");
-    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
+
+    return utils::awaitable_t<ipc::send_result_t>(
+        [this, msg = std::move(message_buffer), payload_length] (std::function<void(ipc::send_result_t)> resume) {
+            auto result = m_socket.send(
+                m_runtime_handle,
+                std::span{msg}.subspan(0, ipc_header_length + payload_length),
+                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) { resume(result_); }
+            );
+
+            if (result != ipc::send_result_t::DELAYED_RESULT) {
+                resume(result);
+            }
+        }
+    );
 }
 
-ipc::send_result_t runtime_proxy_t::offer_services(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    using namespace threesomeip;
-
+utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::offer_services() {
     std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
 
     /* calculate the size of the serialized header */
@@ -284,13 +278,23 @@ ipc::send_result_t runtime_proxy_t::offer_services(std::optional<ipc::ud_socket_
     someip::serdes::serialize(message_buffer.data(), message_header);
 
     m_logger->info("Announcing application's offered services");
-    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
+
+    return utils::awaitable_t<ipc::send_result_t>(
+        [this, msg = std::move(message_buffer), payload_length] (std::function<void(ipc::send_result_t)> resume) {
+            auto result = m_socket.send(
+                m_runtime_handle,
+                std::span{msg}.subspan(0, ipc_header_length + payload_length),
+                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) { resume(result_); }
+            );
+
+            if (result != ipc::send_result_t::DELAYED_RESULT) {
+                resume(result);
+            }
+        }
+    );
 }
 
-
-ipc::send_result_t runtime_proxy_t::request_services(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    using namespace threesomeip;
-
+utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::request_services() {
     std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
 
     /* calculate the size of the serialized header */
@@ -313,12 +317,23 @@ ipc::send_result_t runtime_proxy_t::request_services(std::optional<ipc::ud_socke
     someip::serdes::serialize(message_buffer.data(), message_header);
 
     m_logger->info("Announcing application's required services");
-    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, ipc_header_length + payload_length), std::move(delayed_cb));
+
+    return utils::awaitable_t<ipc::send_result_t>(
+        [this, msg = std::move(message_buffer), payload_length] (std::function<void(ipc::send_result_t)> resume) {
+            auto result = m_socket.send(
+                m_runtime_handle,
+                std::span{msg}.subspan(0, ipc_header_length + payload_length),
+                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) { resume(result_); }
+            );
+
+            if (result != ipc::send_result_t::DELAYED_RESULT) {
+                resume(result);
+            }
+        }
+    );
 }
 
 ipc::send_result_t runtime_proxy_t::send(std::span<const std::byte> someip_payload, std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    using namespace threesomeip;
-
     std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
 
     /* construct the header and serialize it */

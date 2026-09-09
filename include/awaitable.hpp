@@ -45,6 +45,14 @@ struct detached_task_t {
     };
 };
 
+
+template<typename T>
+void run_detached(awaitable_t<T> awaitable, std::function<void(T)> on_done) {
+    T result = co_await awaitable;
+    on_done(std::move(result));
+}
+
+
 } // namespace threesomeip::utils
 
 #endif // _AWAITABLE_HPP

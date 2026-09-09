@@ -21,7 +21,7 @@
 #include <udsocket.hpp>
 #include <active_object.hpp>
 #include <timer.hpp>
-#include <async_chain.hpp>
+#include <awaitable.hpp>
 
 /*===========*\
  * 3RD PARTY *
@@ -49,15 +49,7 @@ public:
         std::span<const config::service_configuration_t> requested_services
     ) noexcept;
 
-
-    ipc::send_result_t register_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
-    ipc::send_result_t unregister_application(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
-    ipc::send_result_t offer_services(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
-    ipc::send_result_t request_services(std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
-    ipc::send_result_t send(
-        std::span<const std::byte> someip_payload,
-        std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb
-    );
+    ipc::send_result_t send(std::span<const std::byte> someip_payload, std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb);
 
     uint16_t get_id() const {
         return m_app_id;
@@ -67,7 +59,16 @@ public:
 
 private:
 
-    void reconnect(std::function<void(utils::step_status_t)>);
+
+    utils::awaitable_t<ipc::send_result_t> register_application();
+    utils::awaitable_t<ipc::send_result_t> unregister_application();
+    utils::awaitable_t<ipc::send_result_t> offer_services();
+    utils::awaitable_t<ipc::send_result_t> request_services();
+
+    utils::detached_task_t reconnect(std::function<void(bool)> on_done);
+
+
+    void send_heartbeat();
 
     void handle_on_receive(
         ipc::ud_socket_t& self,
