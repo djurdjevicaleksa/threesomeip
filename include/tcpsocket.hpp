@@ -29,6 +29,21 @@ enum class send_result_t {
     EPHEMERAL_SOCKET_DEAD
 };
 
+struct endpoint_t {
+    std::string address;
+    int port;
+
+    bool operator==(const endpoint_t&) const = default;
+
+    struct hash {
+        size_t operator()(const endpoint_t& e) const {
+            size_t h = std::hash<std::string>{}(e.address);
+            h ^= std::hash<int>{}(e.port) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            return h;
+        }
+    };
+};
+
 
 class tcp_socket_t: public ipc::lifecycle_listener_t {
 public:
@@ -64,21 +79,6 @@ private:
 
     void on_alive() override;
 
-
-    struct endpoint_t {
-        std::string address;
-        int port;
-
-        bool operator==(const endpoint_t&) const = default;
-
-        struct hash {
-            size_t operator()(const endpoint_t& e) const {
-                size_t h = std::hash<std::string>{}(e.address);
-                h ^= std::hash<int>{}(e.port) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                return h;
-            }
-        };
-    };
 
     struct pending_message_t {
         std::vector<std::byte> data;

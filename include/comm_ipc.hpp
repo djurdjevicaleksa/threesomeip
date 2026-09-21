@@ -16,7 +16,7 @@
 namespace threesomeip::ipc {
 
 
-constexpr uint16_t MAX_PAYLOAD_SIZE = 1024;
+constexpr uint16_t MAX_PAYLOAD_SIZE = 1024 + 1400;
 
 
 namespace types {

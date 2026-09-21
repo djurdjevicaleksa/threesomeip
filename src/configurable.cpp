@@ -101,6 +101,16 @@ configurable_t::parseEcuConfiguration(fs::path ecu_configuration_file_path) noex
         config.runtime_application_name = std::move(data["routing"]);
         config.sockets_path = fs::path{std::move(data["ipc-path"])};
 
+        for (const auto& external_service: data["external-services"]) {
+            config.external_services.emplace_back(
+                parseStringAsU16(static_cast<std::string>(external_service["service"])).value(),
+                parseStringAsU16(static_cast<std::string>(external_service["instance"])).value(),
+                static_cast<std::string>(external_service["ip"]),
+                parseStringAsU16(static_cast<std::string>(external_service["unreliable"])).value(),
+                parseStringAsU16(static_cast<std::string>(external_service["reliable"]["port"])).value()
+            );
+        }
+
         // TODO parse service discovery
 
         return config;

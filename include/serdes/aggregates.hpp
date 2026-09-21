@@ -17,6 +17,7 @@
 #include <serdes/serdes_declarations.hpp>
 #include <serdes/serdes_configuration.hpp>
 #include <serdes/integers.hpp>
+#include <serdes/someip_types.hpp>
 
 
 namespace threesomeip::someip::serdes {
@@ -143,6 +144,19 @@ void _serialize(std::byte*& out, const T& agg) {
     });
 }
 
+template<>
+inline void _serialize<types::message_header_t>(std::byte*& out, const types::message_header_t& agg) {
+    serdes::_serialize(out, agg.message_id.service_id);
+    serdes::_serialize(out, agg.message_id.method_id);
+    serdes::_serialize(out, agg.length);
+    serdes::_serialize(out, agg.request_id.client_id);
+    serdes::_serialize(out, agg.request_id.session_id);
+    serdes::_serialize(out, agg.protocol_version);
+    serdes::_serialize(out, agg.interface_version);
+    serdes::_serialize(out, agg.message_type);
+    serdes::_serialize(out, agg.return_code);
+}
+
 template<Aggregate T>
 T _deserialize(std::byte*& in) {
     if constexpr (! std::is_same_v<traits::aggregate_length_field_t<T>, void>) {
@@ -168,7 +182,21 @@ T _deserialize(std::byte*& in) {
         });
         return agg;
     }
+}
 
+template<>
+inline types::message_header_t _deserialize<types::message_header_t>(std::byte*& in) {
+    return types::message_header_t{
+        serdes::_deserialize<types::uint16>(in),
+        serdes::_deserialize<types::uint16>(in),
+        serdes::_deserialize<types::uint32>(in),
+        serdes::_deserialize<types::uint16>(in),
+        serdes::_deserialize<types::uint16>(in),
+        serdes::_deserialize<types::uint8>(in),
+        serdes::_deserialize<types::uint8>(in),
+        static_cast<types::message_type_t>(serdes::_deserialize<types::uint8>(in)),
+        serdes::_deserialize<types::uint8>(in)
+    };
 }
 
 template<Aggregate T>

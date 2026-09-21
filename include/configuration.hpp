@@ -34,6 +34,14 @@ struct service_configuration_t {
     uint16_t tcp_port;
 };
 
+struct external_service_configuration_t {
+    uint16_t service_id;
+    uint16_t instance_id;
+    std::string ip;
+    uint16_t udp_port;
+    uint16_t tcp_port;
+};
+
 // TODO service_discovery_configuration_t {};
 
 
@@ -42,6 +50,7 @@ struct ecu_configuration_t {
     logging_configuration_t logging;
     std::vector<application_configuration_t> applications;
     std::vector<service_configuration_t> services;
+    std::vector<external_service_configuration_t> external_services;
     std::string runtime_application_name;
     fs::path sockets_path;
 };

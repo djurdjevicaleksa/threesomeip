@@ -31,7 +31,7 @@ int main() {
         "/home/adjurdjevic/Desktop/threesomeip/someip.json",
         active_object,
         "calculator_stub",
-        uint16_t{2},
+        uint16_t{0},
         std::vector<config::service_configuration_t>{
             config::service_configuration_t{
                 uint16_t{0x1234},
