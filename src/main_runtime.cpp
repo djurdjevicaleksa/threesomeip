@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
 
 
     runtime::runtime_stub_t runtime{
-        "/home/adjurdjevic/Desktop/threesomeip/someip.json",
+        "/etc/threesomeip/someip.json",
         active_object
     };
 

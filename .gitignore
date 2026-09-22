@@ -4,3 +4,4 @@ bin/
 3rd_party/
 deployment/franca/
 src-gen/
+deployment/build_output/

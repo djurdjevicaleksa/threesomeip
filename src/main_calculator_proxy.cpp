@@ -107,7 +107,7 @@ int main() {
 
     // --- runtime + proxy setup -------------------------------------------
     threesomeip::runtime::runtime_proxy_t runtime_proxy{
-        "/home/adjurdjevic/Desktop/threesomeip/someip.json",
+        "/etc/threesomeip/someip.json",
         active_object,
         "calculator_proxy",
         uint16_t{0},

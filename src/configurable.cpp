@@ -39,9 +39,9 @@ configurable_t::parseStringAsU16(std::string_view value) noexcept {
 
     int number_base = 10;
 
-    if (value.compare("0x") or value.compare("0X")) number_base = 16;
-    else if (value.compare("0o") or value.compare("0O")) number_base = 8;
-    else if (value.compare("0b") or value.compare("0B")) number_base = 2;
+    if (value.starts_with("0x") or value.starts_with("0X")) number_base = 16;
+    else if (value.starts_with("0o") or value.starts_with("0O")) number_base = 8;
+    else if (value.starts_with("0b") or value.starts_with("0B")) number_base = 2;
 
     const uint8_t prefix_offset = (number_base == 10) ? 0 : 2;
 

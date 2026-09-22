@@ -28,7 +28,7 @@ int main() {
 
 
     runtime::runtime_proxy_t runtime_proxy{
-        "/home/adjurdjevic/Desktop/threesomeip/someip.json",
+        "/etc/threesomeip/someip.json",
         active_object,
         "calculator_stub",
         uint16_t{0},

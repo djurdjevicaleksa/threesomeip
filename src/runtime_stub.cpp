@@ -424,7 +424,7 @@ void runtime_stub_t::evict_application(/* intentionally copied */ const applicat
 }
 
 
-std::string_view runtime_stub_t::message_type_name(ipc::types::message_type_t type) const {
+std::string_view runtime_stub_t::message_type_name( ipc::types::message_type_t type) const {
     switch (type) {
         case ipc::types::message_type_t::REGISTER_APPLICATION: return "REGISTER_APPLICATION";
         case ipc::types::message_type_t::UNREGISTER_APPLICATION: return "UNREGISTER_APPLICATION";

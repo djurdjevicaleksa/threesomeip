@@ -1,24 +1,28 @@
 services:
-  ecu1:
-    build: ./ecu1
-    container_name: ecu1_container
+  calculator_client:
+    build: ./calculator_client
+    container_name: calculator_client_container
     networks:
       someip_net:
         ipv4_address: 10.10.0.2
     volumes:
-      - ./someip.json:/etc/someip.json:ro
+      - ./build_output/main_runtime:/etc/threesomeip/bin/runtime:ro
+      - ./calculator_client/someip.json:/etc/threesomeip/someip.json:ro
+      - ./build_output/main_calculator_proxy:/etc/threesomeip/bin/calculator_client:ro
     entrypoint: ["sleep", "infinity"]
     stdin_open: true
     tty: true
 
-  ecu2:
-    build: ./ecu2
-    container_name: ecu2_container
+  calculator_service:
+    build: ./calculator_service
+    container_name: calculator_service_container
     networks:
       someip_net:
         ipv4_address: 10.10.0.3
     volumes:
-      - ./someip.json:/etc/someip.json:ro
+      - ./build_output/main_runtime:/etc/threesomeip/bin/runtime:ro
+      - ./calculator_service/someip.json:/etc/threesomeip/someip.json:ro
+      - ./build_output/main_calculator_stub:/etc/threesomeip/bin/calculator_service:ro
     entrypoint: ["sleep", "infinity"]
     stdin_open: true
     tty: true
