@@ -226,7 +226,7 @@ int tcp_socket_t::_internal_detail_connect_to(const std::string& address, const 
 
     sockaddr_in recipient_address{
         .sin_family{AF_INET},
-        .sin_port{htons(port)},
+        .sin_port{htons(static_cast<uint16_t>(port))},
         .sin_addr{},
         .sin_zero{}
     };

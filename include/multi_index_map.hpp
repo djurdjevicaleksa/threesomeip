@@ -191,6 +191,21 @@ public:
         }
     }
 
+    template<typename Key>
+    const Value& at(const Key& key) const {
+        using KeyBaseType = std::decay_t<Key>;
+
+        if constexpr (std::is_same_v<KeyBaseType, PrimaryKey>) {
+            return m_primary.at(key).value;
+        }
+        else if constexpr ((std::is_same_v<KeyBaseType, SecondaryKeys> || ...)) {
+            return std::get<secondary_map_t<KeyBaseType>>(m_secondaries).at(key)->value;
+        }
+        else {
+            static_assert(!sizeof(Key*), "Provided key is not the primary nor any of the secondary keys.");
+        }
+    }
+
 private:
 
     bool addAliases(const PrimaryKey&, SecondaryKeys...)

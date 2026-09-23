@@ -203,7 +203,12 @@ utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::register_application() {
             auto result = m_socket.send(
                 m_runtime_handle,
                 std::span{msg}.subspan(0, ipc_header_length + payload_length),
-                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) { resume(result_); }
+                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
+                    (void) recipient;
+                    (void) data;
+
+                    resume(result_);
+                }
             );
 
             if (result != ipc::send_result_t::DELAYED_RESULT) {
@@ -245,7 +250,12 @@ utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::unregister_application()
             auto result = m_socket.send(
                 m_runtime_handle,
                 std::span{msg}.subspan(0, ipc_header_length + payload_length),
-                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) { resume(result_); }
+                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
+                    (void) recipient;
+                    (void) data;
+
+                    resume(result_);
+                }
             );
 
             if (result != ipc::send_result_t::DELAYED_RESULT) {
@@ -284,7 +294,12 @@ utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::offer_services() {
             auto result = m_socket.send(
                 m_runtime_handle,
                 std::span{msg}.subspan(0, ipc_header_length + payload_length),
-                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) { resume(result_); }
+                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
+                    (void) recipient;
+                    (void) data;
+
+                    resume(result_);
+                }
             );
 
             if (result != ipc::send_result_t::DELAYED_RESULT) {
@@ -323,7 +338,12 @@ utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::request_services() {
             auto result = m_socket.send(
                 m_runtime_handle,
                 std::span{msg}.subspan(0, ipc_header_length + payload_length),
-                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) { resume(result_); }
+                [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
+                    (void) recipient;
+                    (void) data;
+
+                    resume(result_);
+                }
             );
 
             if (result != ipc::send_result_t::DELAYED_RESULT) {

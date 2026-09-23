@@ -50,6 +50,9 @@ private:
     using service_id_t = uint16_t;
     using application_id_t = uint16_t;
 
+    using peer_t = std::variant<ipc::types::socket_handle_t, net::endpoint_t>;
+
+
     /* IPC comm */
     void handle_on_receive(ipc::ud_socket_t& self, const ipc::types::socket_handle_t& sender, const std::span<const std::byte> data) noexcept;
     void handle_register_application(const ipc::types::socket_handle_t& sender, const std::span<const std::byte> data);
@@ -60,13 +63,15 @@ private:
     void handle_heartbeat(const ipc::types::socket_handle_t& sender, const std::span<const std::byte> data);
 
     /* RELIABLE comm */
-    void handle_on_receive_reliable(const std::string& address, const int port, const std::span<const std::byte> data) noexcept;
-    void handle_on_reliable_assembled(const std::string& address, const int port, const std::span<const std::byte> data) noexcept;
+    void handle_on_receive_reliable(const std::string& address, const int port, const std::span<const std::byte> someip_data) noexcept;
 
     std::string_view message_type_name(ipc::types::message_type_t type) const;
 
-    std::vector<std::byte> wrap_with_ipc_header(const std::span<const std::byte> data, ipc::types::message_type_t message_type);
+    std::string peer_to_string(const peer_t& peer) const;
 
+    std::vector<std::byte> wrap_with_ipc_header(const std::span<const std::byte> data) const;
+
+    void forward(const peer_t& sender, const std::span<const std::byte> someip_data);
 
     struct application_entry_t {
         ipc::types::socket_handle_t handle;
@@ -114,7 +119,10 @@ private:
 
     application_map_t m_apps;
 
-    std::unordered_map<request_key_t, std::variant<ipc::types::socket_handle_t, net::endpoint_t>, request_key_t::hash> m_pending_requests;
+
+    std::unordered_map<request_key_t, peer_t, request_key_t::hash> m_pending_requests;
+
+
 
     /*
         heartbeat
