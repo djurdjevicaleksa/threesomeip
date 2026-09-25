@@ -10,6 +10,7 @@ tmux new-session -d -s deployment
 
 # Top left (pane 0)
 tmux send-keys -t deployment "docker compose exec calculator_service /etc/threesomeip/bin/runtime" C-m
+sleep 1
 
 # Bottom left (pane 1)
 tmux split-window -v -t deployment.0
@@ -18,6 +19,7 @@ tmux send-keys -t deployment "docker compose exec calculator_service /etc/threes
 # Top right (pane 2)
 tmux split-window -h -t deployment.0
 tmux send-keys -t deployment "docker compose exec calculator_client /etc/threesomeip/bin/runtime" C-m
+sleep 1
 
 # Bottom right (pane 3)
 tmux split-window -v -t deployment.2

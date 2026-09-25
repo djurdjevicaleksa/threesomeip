@@ -102,17 +102,7 @@ utils::detached_task_t runtime_proxy_t::reconnect(std::function<void(bool)> on_d
 }
 
 void runtime_proxy_t::send_heartbeat() {
-    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
-    ipc::types::message_header_t message_header{
-        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
-        .protocol_version{1},
-        .message_type{ipc::types::message_type_t::HEARTBEAT},
-        ._flags{someip::types::uint8{0}},
-        ._request_id{someip::types::uint16{0}},
-        ._reserved{someip::types::uint16{0}},
-        .payload_length{static_cast<someip::types::uint16>(0)},
-    };
-    size_t header_length = someip::serdes::serialize(message_buffer.data(), message_header);
+    auto complete_payload = this->wrap_with_ipc_header({}, ipc::types::message_type_t::HEARTBEAT);
 
     /* this lambda can run both synchronously and asynchronously */
     const auto handleResult = [this] (const ipc::send_result_t result) {
@@ -159,7 +149,7 @@ void runtime_proxy_t::send_heartbeat() {
     handleResult(
         m_socket.send(
             m_runtime_handle,
-            std::span{message_buffer}.subspan(0, header_length),
+            complete_payload,
             [handleResult] (const ipc::send_result_t result, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) -> void {
                 (void) recipient;
                 (void) data;
@@ -172,37 +162,19 @@ void runtime_proxy_t::send_heartbeat() {
 }
 
 utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::register_application() {
-    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
+    const ipc::types::unregister_message_t payload{.app_name{m_app_name}, .app_id{m_app_id}};
+    std::vector<std::byte> buffer(someip::serdes::serialize_dry_run(payload));
+    someip::serdes::serialize(buffer.data(), payload);
 
-    /* calculate the size of the serialized header */
-    constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
-
-    /* serialize the payload at an offset equal to the length of the header so we get the payload length */
-    ipc::types::register_message_t message{
-        .app_name{m_app_name},
-        .app_id{m_app_id}
-    };
-    size_t payload_length = someip::serdes::serialize(message_buffer.data() + ipc_header_length, message);
-
-    /* construct the header with the correct payload size and serialize it */
-    ipc::types::message_header_t message_header{
-        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
-        .protocol_version{1},
-        .message_type{ipc::types::message_type_t::REGISTER_APPLICATION},
-        ._flags{someip::types::uint8{0}},
-        ._request_id{someip::types::uint16{0}},
-        ._reserved{someip::types::uint16{0}},
-        .payload_length{static_cast<someip::types::uint16>(payload_length)},
-    };
-    someip::serdes::serialize(message_buffer.data(), message_header);
+    auto complete_payload = this->wrap_with_ipc_header(buffer, ipc::types::message_type_t::REGISTER_APPLICATION);
 
     m_logger->info("Announcing application registration");
 
     return utils::awaitable_t<ipc::send_result_t>(
-        [this, msg = std::move(message_buffer), payload_length] (std::function<void(ipc::send_result_t)> resume) {
+        [this, msg = std::move(complete_payload)] (std::function<void(ipc::send_result_t)> resume) {
             auto result = m_socket.send(
                 m_runtime_handle,
-                std::span{msg}.subspan(0, ipc_header_length + payload_length),
+                msg,
                 [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
                     (void) recipient;
                     (void) data;
@@ -219,37 +191,19 @@ utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::register_application() {
 }
 
 utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::unregister_application() {
-    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
+    const ipc::types::unregister_message_t payload{.app_name{m_app_name}, .app_id{m_app_id}};
+    std::vector<std::byte> buffer(someip::serdes::serialize_dry_run(payload));
+    someip::serdes::serialize(buffer.data(), payload);
 
-    /* calculate the size of the serialized header */
-    constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
-
-    /* serialize the payload at an offset equal to the length of the header so we get the payload length */
-    ipc::types::unregister_message_t message{
-        .app_name{m_app_name},
-        .app_id{m_app_id}
-    };
-    size_t payload_length = someip::serdes::serialize(message_buffer.data() + ipc_header_length, message);
-
-    /* construct the header with the correct payload size and serialize it */
-    ipc::types::message_header_t message_header{
-        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
-        .protocol_version{1},
-        .message_type{ipc::types::message_type_t::UNREGISTER_APPLICATION},
-        ._flags{someip::types::uint8{0}},
-        ._request_id{someip::types::uint16{0}},
-        ._reserved{someip::types::uint16{0}},
-        .payload_length{static_cast<someip::types::uint16>(payload_length)},
-    };
-    someip::serdes::serialize(message_buffer.data(), message_header);
+    auto complete_payload = this->wrap_with_ipc_header(buffer, ipc::types::message_type_t::UNREGISTER_APPLICATION);
 
     m_logger->info("Announcing application unregistration");
 
     return utils::awaitable_t<ipc::send_result_t>(
-        [this, msg = std::move(message_buffer), payload_length] (std::function<void(ipc::send_result_t)> resume) {
+        [this, msg = std::move(complete_payload)] (std::function<void(ipc::send_result_t)> resume) {
             auto result = m_socket.send(
                 m_runtime_handle,
-                std::span{msg}.subspan(0, ipc_header_length + payload_length),
+                msg,
                 [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
                     (void) recipient;
                     (void) data;
@@ -266,34 +220,19 @@ utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::unregister_application()
 }
 
 utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::offer_services() {
-    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
+    const ipc::types::request_message_t payload{m_offered_services};
+    std::vector<std::byte> buffer(someip::serdes::serialize_dry_run(payload));
+    someip::serdes::serialize(buffer.data(), payload);
 
-    /* calculate the size of the serialized header */
-    constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
-
-    /* serialize the payload at an offset equal to the length of the header so we get the payload length */
-    ipc::types::offer_message_t message{m_offered_services};
-    size_t payload_length = someip::serdes::serialize(message_buffer.data() + ipc_header_length, message);
-
-    /* construct the header with the correct payload size and serialize it */
-    ipc::types::message_header_t message_header{
-        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
-        .protocol_version{1},
-        .message_type{ipc::types::message_type_t::OFFER_SERVICE},
-        ._flags{someip::types::uint8{0}},
-        ._request_id{someip::types::uint16{0}},
-        ._reserved{someip::types::uint16{0}},
-        .payload_length{static_cast<someip::types::uint16>(payload_length)},
-    };
-    someip::serdes::serialize(message_buffer.data(), message_header);
+    auto complete_payload = this->wrap_with_ipc_header(buffer, ipc::types::message_type_t::OFFER_SERVICE);
 
     m_logger->info("Announcing application's offered services");
 
     return utils::awaitable_t<ipc::send_result_t>(
-        [this, msg = std::move(message_buffer), payload_length] (std::function<void(ipc::send_result_t)> resume) {
+        [this, msg = std::move(complete_payload)] (std::function<void(ipc::send_result_t)> resume) {
             auto result = m_socket.send(
                 m_runtime_handle,
-                std::span{msg}.subspan(0, ipc_header_length + payload_length),
+                msg,
                 [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
                     (void) recipient;
                     (void) data;
@@ -310,34 +249,19 @@ utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::offer_services() {
 }
 
 utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::request_services() {
-    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
+    const ipc::types::request_message_t payload{m_requested_services};
+    std::vector<std::byte> buffer(someip::serdes::serialize_dry_run(payload));
+    someip::serdes::serialize(buffer.data(), payload);
 
-    /* calculate the size of the serialized header */
-    constexpr size_t ipc_header_length{someip::serdes::serialize_dry_run<ipc::types::message_header_t>()};
-
-    /* serialize the payload at an offset equal to the length of the header so we get the payload length */
-    ipc::types::request_message_t message{m_requested_services};
-    size_t payload_length = someip::serdes::serialize(message_buffer.data() + ipc_header_length, message);
-
-    /* construct the header with the correct payload size and serialize it */
-    ipc::types::message_header_t message_header{
-        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
-        .protocol_version{1},
-        .message_type{ipc::types::message_type_t::REQUEST_SERVICE},
-        ._flags{someip::types::uint8{0}},
-        ._request_id{someip::types::uint16{0}},
-        ._reserved{someip::types::uint16{0}},
-        .payload_length{static_cast<someip::types::uint16>(payload_length)},
-    };
-    someip::serdes::serialize(message_buffer.data(), message_header);
+    auto complete_payload = this->wrap_with_ipc_header(buffer, ipc::types::message_type_t::REQUEST_SERVICE);
 
     m_logger->info("Announcing application's required services");
 
     return utils::awaitable_t<ipc::send_result_t>(
-        [this, msg = std::move(message_buffer), payload_length] (std::function<void(ipc::send_result_t)> resume) {
+        [this, msg = std::move(complete_payload)] (std::function<void(ipc::send_result_t)> resume) {
             auto result = m_socket.send(
                 m_runtime_handle,
-                std::span{msg}.subspan(0, ipc_header_length + payload_length),
+                msg,
                 [resume] (const ipc::send_result_t result_, const ipc::types::socket_handle_t& recipient, const std::span<const std::byte> data) {
                     (void) recipient;
                     (void) data;
@@ -354,25 +278,9 @@ utils::awaitable_t<ipc::send_result_t> runtime_proxy_t::request_services() {
 }
 
 ipc::send_result_t runtime_proxy_t::send(std::span<const std::byte> someip_payload, std::optional<ipc::ud_socket_t::DelayedResultCallback> delayed_cb) {
-    std::array<std::byte, ipc::MAX_PAYLOAD_SIZE> message_buffer{};
-
-    /* construct the header and serialize it */
-    ipc::types::message_header_t message_header{
-        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
-        .protocol_version{1},
-        .message_type{ipc::types::message_type_t::SEND},
-        ._flags{someip::types::uint8{0}},
-        ._request_id{someip::types::uint16{0}},
-        ._reserved{someip::types::uint16{0}},
-        .payload_length{static_cast<someip::types::uint16>(someip_payload.size())},
-    };
-    size_t header_length = someip::serdes::serialize(message_buffer.data(), message_header);
-
-    /* copy the already serialized payload containing the someip header and someip payload into the buffer */
-    std::ranges::copy(someip_payload, message_buffer.begin() + header_length);
-
-    m_logger->debug("Announcing application's intent to send a SOME/IP payload");
-    return m_socket.send(m_runtime_handle, std::span{message_buffer}.subspan(0, header_length + someip_payload.size()), std::move(delayed_cb));
+    const auto complete_payload = this->wrap_with_ipc_header(someip_payload, ipc::types::message_type_t::SEND);
+    m_logger->debug("Sending a SOME/IP payload");
+    return m_socket.send(m_runtime_handle, complete_payload, std::move(delayed_cb));
 }
 
 void runtime_proxy_t::register_message_listener(MessageReceivedCallback cb) {
@@ -395,6 +303,25 @@ void runtime_proxy_t::handle_on_receive(ipc::ud_socket_t& self, const ipc::types
     for (const auto& callback: m_registered_listeners) {
         callback(data.subspan(ipc_header_length));
     }
+}
+
+std::vector<std::byte> runtime_proxy_t::wrap_with_ipc_header(const std::span<const std::byte> data, ipc::types::message_type_t message_type) const {
+    std::vector<std::byte> message_buffer(someip::serdes::serialize_dry_run<ipc::types::message_header_t>() + data.size());
+
+    ipc::types::message_header_t message_header{
+        .start_of_frame{'#', 't', 'h', 'r', 'e', 'e', 's', 'o', 'm', 'e', 'i', 'p', '#'},
+        .protocol_version{1},
+        .message_type{message_type},
+        ._flags{someip::types::uint8{0}},
+        ._request_id{someip::types::uint16{0}},
+        ._reserved{someip::types::uint16{0}},
+        .payload_length{static_cast<someip::types::uint16>(data.size())},
+    };
+
+    size_t ipc_header_length = someip::serdes::serialize(message_buffer.data(), message_header);
+    std::ranges::copy(data, message_buffer.begin() + ipc_header_length);
+
+    return message_buffer;
 }
 
 } // namespace threesomeip

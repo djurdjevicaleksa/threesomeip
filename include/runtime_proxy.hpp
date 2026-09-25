@@ -65,6 +65,9 @@ private:
     utils::awaitable_t<ipc::send_result_t> offer_services();
     utils::awaitable_t<ipc::send_result_t> request_services();
 
+    std::vector<std::byte> wrap_with_ipc_header(const std::span<const std::byte> data, ipc::types::message_type_t message_type) const;
+
+
     utils::detached_task_t reconnect(std::function<void(bool)> on_done);
 
 
